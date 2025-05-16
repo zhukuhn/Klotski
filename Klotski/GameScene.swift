@@ -27,7 +27,7 @@ class GameScene: SKScene {
 
     // MARK: - Scene Lifecycle
     override func didMove(to view: SKView) {
-        backgroundColor = .lightGray
+        backgroundColor = .gray
         // anchorPoint 已经在 ContentView 中设置为 (0,1) 左上角
 
         // 1. 计算瓦片大小和棋盘原点
@@ -244,7 +244,7 @@ class GameScene: SKScene {
         let typeToSet: PieceType = occupying ? piece.pieceType : .empty
         // 如果是占据，还需要一个唯一ID来区分同类型的棋子，这里简化了
         // 例如，可以用 piece.name 或者一个专门的 pieceId
-        let occupyingName: String? = occupying ? piece.name : nil
+        //let occupyingName: String? = occupying ? piece.name : nil
 
         for r in 0..<piece.gridHeight {
             for c in 0..<piece.gridWidth {

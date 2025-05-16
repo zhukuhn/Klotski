@@ -15,7 +15,3 @@ struct KlotskiApp: App {
         }
     }
 }
-
-#Preview {
-    ContentView()
-}
