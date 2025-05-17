@@ -9,24 +9,41 @@ import SwiftUI
 
 class GameManager: ObservableObject {
     @Published var currentLevel: Level?
-    @Published var levels: [Level] = [ // Sample levels
-        Level(id: "easy-1", name: "入门第一关", layout: [[1,1,2,0],[1,1,3,0],[4,5,0,0]], bestMoves: nil, bestTime: nil, isUnlocked: true),
-        Level(id: "easy-2", name: "入门第二关", layout: [[1,2,2,0],[1,3,3,0],[4,5,0,0]], bestMoves: nil, bestTime: nil, isUnlocked: true),
-        Level(id: "medium-1", name: "中等第一关", layout: [[1,1,2,3],[1,1,4,5],[6,7,0,8],[9,10,11,12],[13,14,15,0]], isUnlocked: true)
-        // TODO: Add more diverse and representative Klotski layouts, especially for a 4x5 board.
-        // The layouts above are just placeholders. A typical Klotski (Huarong Dao) has specific piece sizes.
-        // e.g., CaoCao (2x2), GuanYu (2x1 horizontal), ZhangFei/MaChao/ZhaoYun/HuangZhong (1x2 vertical), Soldiers (1x1).
-        // The [[Int]] layout would need a mapping from these Ints to piece types/dimensions for rendering.
-    ]
+    @Published var pieces: [Piece] = [] // 当前关卡的棋子实例
+    @Published var gameBoard: [[Int?]] = [] // 棋盘网格，存储占据该格子的棋子ID，nil表示空格。Int? 而非 Int 是因为 0 可能是一个有效的棋子ID
+    
+    static let classicLevel = Level(
+        id: "classic_hdml", name: "横刀立马",
+        boardWidth: 4, boardHeight: 5,
+        piecePlacements: [
+            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),      // 曹操
+            PiecePlacement(id: 2, type: .guanYuH, initialX: 1, initialY: 2),     // 关羽 (横)
+            PiecePlacement(id: 3, type: .zhangFeiV, initialX: 0, initialY: 0),   // 张飞 (竖)
+            PiecePlacement(id: 4, type: .zhaoYunV, initialX: 3, initialY: 0),    // 赵云 (竖)
+            PiecePlacement(id: 5, type: .maChaoV, initialX: 0, initialY: 2),     // 马超 (竖)
+            PiecePlacement(id: 6, type: .huangZhongV, initialX: 3, initialY: 2),  // 黄忠 (竖)
+            PiecePlacement(id: 7, type: .soldier, initialX: 1, initialY: 3),     // 兵1
+            PiecePlacement(id: 8, type: .soldier, initialX: 2, initialY: 3),     // 兵2
+            PiecePlacement(id: 9, type: .soldier, initialX: 0, initialY: 4),     // 兵3
+            PiecePlacement(id: 10, type: .soldier, initialX: 3, initialY: 4)     // 兵4
+        ],
+        targetPieceId: 1, targetX: 1, targetY: 3, // 曹操的目标位置 (出口在下方中间)
+        isUnlocked: true
+    )
+
+    @Published var levels: [Level] = [classicLevel] // 更多关卡可以后续添加
+
     @Published var moves: Int = 0
     @Published var timeElapsed: TimeInterval = 0
     @Published var isGameActive: Bool = false
     @Published var hasSavedGame: Bool = false
+    @Published var isGameWon: Bool = false
+
 
     init() {
-        // Check if a game was previously saved
         if UserDefaults.standard.string(forKey: "savedLevelID") != nil {
-            hasSavedGame = true
+            // TODO: 完善存档加载逻辑，目前仅设置标志
+            // hasSavedGame = true
         }
     }
 
@@ -34,12 +51,145 @@ class GameManager: ObservableObject {
         currentLevel = level
         moves = 0
         timeElapsed = 0
-        isGameActive = true // This will trigger navigation if GameView is observing it
-        // TODO: Initialize game board based on level.layout
+        isGameActive = true
+        isGameWon = false
+        
+        // 1. 初始化棋子实例
+        pieces = level.piecePlacements.map { placement in
+            Piece(id: placement.id, type: placement.type, x: placement.initialX, y: placement.initialY)
+        }
+
+        // 2. 初始化棋盘网格
+        gameBoard = Array(repeating: Array(repeating: nil, count: level.boardWidth), count: level.boardHeight)
+        for piece in pieces {
+            for r in 0..<piece.height {
+                for c in 0..<piece.width {
+                    let boardY = piece.y + r
+                    let boardX = piece.x + c
+                    if boardY < level.boardHeight && boardX < level.boardWidth {
+                        gameBoard[boardY][boardX] = piece.id
+                    } else {
+                        // 棋子超出边界，这是一个关卡设计错误
+                        print("错误：棋子 \(piece.id) 在初始布局时超出边界。")
+                    }
+                }
+            }
+        }
+        
         print("游戏开始: \(level.name)")
-        // After starting, this becomes the new "saved game" implicitly until cleared or level completed
-        saveGame() // Save immediately when a new game starts or a level is selected
-        hasSavedGame = true
+        // saveGame() // 可以在开始时就保存，或首次移动后保存
+        // hasSavedGame = true
+    }
+
+    // 尝试移动棋子 (由拖动手势结束时调用)
+    // dx, dy 是格子单位的位移
+    func attemptMove(pieceId: Int, dx: Int, dy: Int) {
+        guard let level = currentLevel, var pieceToMove = pieces.first(where: { $0.id == pieceId }),
+              (dx != 0 || dy != 0) else { // 如果没有位移，则不执行任何操作
+            return
+        }
+
+        let originalX = pieceToMove.x
+        let originalY = pieceToMove.y
+        let newX = originalX + dx
+        let newY = originalY + dy
+
+        // 1. 边界检查
+        guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
+              newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
+            print("移动无效：棋子 \(pieceId) 移出边界。")
+            return
+        }
+
+        // 2. 碰撞检查 (与目标位置的其他棋子)
+        for r in 0..<pieceToMove.height {
+            for c in 0..<pieceToMove.width {
+                let targetBoardY = newY + r
+                let targetBoardX = newX + c
+                if let occupyingPieceId = gameBoard[targetBoardY][targetBoardX], occupyingPieceId != pieceId {
+                    print("移动无效：棋子 \(pieceId) 与棋子 \(occupyingPieceId) 在 (\(targetBoardX), \(targetBoardY)) 发生碰撞。")
+                    return // 目标位置已被其他棋子占据
+                }
+            }
+        }
+        
+        // --- 如果移动有效 ---
+        // 3. 更新 gameBoard: 清除旧位置，填充新位置
+        for r in 0..<pieceToMove.height {
+            for c in 0..<pieceToMove.width {
+                gameBoard[originalY + r][originalX + c] = nil // 清除旧位置
+            }
+        }
+        for r in 0..<pieceToMove.height {
+            for c in 0..<pieceToMove.width {
+                gameBoard[newY + r][newX + c] = pieceId // 填充新位置
+            }
+        }
+
+        // 4. 更新 pieces 数组中棋子的位置
+        if let index = pieces.firstIndex(where: { $0.id == pieceId }) {
+            pieces[index].x = newX
+            pieces[index].y = newY
+            pieceToMove = pieces[index] // 更新 pieceToMove 的本地副本
+        }
+
+        // 5. 更新步数 (移动一格算一步，所以总步数是水平和垂直移动格数的总和)
+        moves += abs(dx) + abs(dy)
+        print("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
+        
+        // 6. 检查胜利条件
+        checkWinCondition(movedPiece: pieceToMove)
+        
+        // saveGame() // 每次有效移动后保存游戏
+    }
+
+    // 检查棋子是否可以移动到指定方向的指定格数 (用于拖动过程中的实时校验)
+    // pieceId: 要移动的棋子ID
+    // dx, dy: 尝试移动的格子数 (通常每次为 1 或 -1)
+    // returns: Bool - 是否可以移动
+    func canMove(pieceId: Int, dx: Int, dy: Int) -> Bool {
+        guard let level = currentLevel, let pieceToMove = pieces.first(where: { $0.id == pieceId }) else {
+            return false
+        }
+
+        let newX = pieceToMove.x + dx
+        let newY = pieceToMove.y + dy
+
+        // 1. 边界检查
+        guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
+              newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
+            return false // 超出边界
+        }
+
+        // 2. 碰撞检查
+        // 检查目标位置的每一个格子是否为空，或者是否被当前正在移动的棋子自身占据 (这在单步检查中不应发生，但在多步检查中可能需要)
+        for r_offset in 0..<pieceToMove.height {
+            for c_offset in 0..<pieceToMove.width {
+                let targetBoardY = newY + r_offset
+                let targetBoardX = newX + c_offset
+                
+                // 获取目标格子上的棋子ID
+                let occupyingPieceId = gameBoard[targetBoardY][targetBoardX]
+                
+                // 如果目标格子上存在棋子，并且这个棋子不是当前正在移动的棋子，则发生碰撞
+                if let occupyingPieceId = occupyingPieceId, occupyingPieceId != pieceId {
+                    return false // 碰撞
+                }
+            }
+        }
+        return true // 可以移动
+    }
+
+
+    func checkWinCondition(movedPiece: Piece) {
+        guard let level = currentLevel else { return }
+        if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
+            isGameWon = true
+            isGameActive = false // 可以选择在胜利时停止游戏活动状态
+            // clearSavedGame() // 胜利后清除存档
+            print("恭喜！关卡 \(level.name) 完成！总步数: \(moves)")
+            // 后续可以触发更复杂的完成逻辑，如显示胜利界面、解锁下一关等
+        }
     }
 
     func continueGame() {
@@ -89,29 +239,29 @@ class GameManager: ObservableObject {
         clearSavedGame()
         isGameActive = false // This will allow programmatic dismissal of GameView
     }
-
-    func moveBlock() {
-        // TODO: Implement block moving logic on the game board.
-        // This involves:
-        // 1. Identifying the selected block.
-        // 2. Determining valid move directions.
-        // 3. Updating the block's position in the internal game board representation.
-        // 4. Checking for win condition.
-        moves += 1
-    }
 }
 
 class ThemeManager: ObservableObject {
     @Published var themes: [Theme] = [
-        Theme(id: "default", name: "默认浅色", isPremium: false, backgroundColor: CodableColor(color: .white), sliderColor: CodableColor(color: .blue), fontName: nil, colorScheme: .light),
-        Theme(id: "dark", name: "深邃夜空", isPremium: false, backgroundColor: CodableColor(color: .black), sliderColor: CodableColor(color: .orange), fontName: nil, colorScheme: .dark),
+        Theme(id: "default", name: "默认浅色", isPremium: false,
+              backgroundColor: CodableColor(color: .white),
+              sliderColor: CodableColor(color: .blue), sliderTextColor: CodableColor(color: .white),
+              boardBackgroundColor: CodableColor(color: Color(white: 0.9)), boardGridLineColor: CodableColor(color: Color(white: 0.7)),
+              fontName: nil, colorScheme: .light),
+        Theme(id: "dark", name: "深邃夜空", isPremium: false,
+              backgroundColor: CodableColor(color: .black),
+              sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
+              boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
+              fontName: nil, colorScheme: .dark),
         Theme(id: "forest", name: "森林绿意", isPremium: true, price: 6.00,
-              backgroundColor: CodableColor(color: Color(hex: "A1C181")),
-              sliderColor: CodableColor(color: Color(hex: "679436")),
+              backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
+              sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
+              boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
               fontName: "Georgia", colorScheme: .light),
         Theme(id: "ocean", name: "蔚蓝海洋", isPremium: true, price: 6.00,
               backgroundColor: CodableColor(color: Color(red: 86/255, green: 207/255, blue: 225/255)),
-              sliderColor: CodableColor(color: Color(red: 78/255, green: 168/255, blue: 222/255)),
+              sliderColor: CodableColor(color: Color(red: 78/255, green: 168/255, blue: 222/255)), sliderTextColor: CodableColor(color: .white),
+              boardBackgroundColor: CodableColor(color: Color(red: 180/255, green: 225/255, blue: 235/255)), boardGridLineColor: CodableColor(color: Color(red: 100/255, green: 150/255, blue: 180/255)),
               fontName: "HelveticaNeue-Light", colorScheme: .light)
     ]
     @Published var currentTheme: Theme
@@ -126,8 +276,9 @@ class ThemeManager: ObservableObject {
         // 这确保了在 self 完全初始化之前，currentTheme 就被赋值，
         // 并且这个赋值不依赖于通过 `self` 访问 `themes` 数组。
         let initialDefaultTheme = Theme(id: "default", name: "默认浅色", isPremium: false,
-                                        backgroundColor: CodableColor(color: .white),
-                                        sliderColor: CodableColor(color: .blue), fontName: nil, colorScheme: .light)
+                                        backgroundColor: CodableColor(color: .white),sliderColor: CodableColor(color: .blue),
+                                        sliderTextColor: CodableColor(color: .white),boardBackgroundColor: CodableColor(color: Color(white: 0.9)),
+                                        boardGridLineColor: CodableColor(color: Color(white: 0.7)),fontName: nil, colorScheme: .light)
         self.currentTheme = initialDefaultTheme // 至此，所有存储属性都已初始化。
 
         // 步骤 2: 现在 `self` 已经完全初始化，可以安全地访问 `self.themes` (或简写为 `themes`)

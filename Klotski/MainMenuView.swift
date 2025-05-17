@@ -119,141 +119,338 @@ struct MenuButton: View {
     }
 }
 
+// 游戏主界面
 struct GameView: View {
     @EnvironmentObject var gameManager: GameManager
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var settingsManager: SettingsManager
-    @Environment(\.dismiss) var dismiss // Used to pop the view if NavigationStack is used by parent
+    @Environment(\.dismiss) var dismiss
 
-    // Timer for game duration
     @State private var timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    @State private var internalTimeElapsed: TimeInterval = 0 // To manage timer locally
+    @State private var internalTimeElapsed: TimeInterval = 0
+    
+    // 用于跟踪拖动的棋子及其状态
+    @GestureState private var draggingPieceInfo: (id: Int, offset: CGSize, initialPositionInDrag: CGPoint)? = nil
+    @State private var lockedDragAxis: Axis? = nil // 拖动时锁定的轴
+
+    // 棋盘格子大小，可以根据屏幕尺寸动态计算
+    private let boardPadding: CGFloat = 10
+    private func calculateCellSize(geometry: GeometryProxy, boardWidthCells: Int, boardHeightCells: Int) -> CGFloat {
+        let boardAreaWidth = geometry.size.width - (boardPadding * 2)
+        let boardAreaHeight = geometry.size.height * 0.6 - (boardPadding * 2) // 假设棋盘区域占高度的60%
+        
+        let cellWidth = boardAreaWidth / CGFloat(boardWidthCells)
+        let cellHeight = boardAreaHeight / CGFloat(boardHeightCells)
+        return min(cellWidth, cellHeight, 80) // 限制最大格子大小
+    }
 
     var body: some View {
-        VStack {
-            if let level = gameManager.currentLevel {
-                Text("\(settingsManager.localizedString(forKey: "level")): \(level.name)")
-                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 24) : .title)
-                   .fontWeight(.bold)
-                   .padding()
-                   .foregroundColor(themeManager.currentTheme.sliderColor.color)
+        GeometryReader { geometry in
+            VStack {
+                if let level = gameManager.currentLevel {
+                    let cellSize = calculateCellSize(geometry: geometry, boardWidthCells: level.boardWidth, boardHeightCells: level.boardHeight)
+                    let boardTotalWidth = cellSize * CGFloat(level.boardWidth)
+                    let boardTotalHeight = cellSize * CGFloat(level.boardHeight)
 
-                // TODO: Implement the actual Klotski game board UI here
-                // This would involve:
-                // - A Grid or similar layout to represent the board.
-                // - Rendering individual blocks based on level.layout, their types, dimensions.
-                // - Applying themeManager.currentTheme.sliderColor, sliderShape, sliderContent to each block.
-                // - Handling swipe gestures (DragGesture) or tap-to-select-and-tap-to-move logic.
-                // - Updating gameManager.currentLevel.layout and calling gameManager.moveBlock().
-                
-                ZStack { // Placeholder for the game board
-                    Rectangle()
-                       .fill(themeManager.currentTheme.sliderColor.color.opacity(0.1)) // Board background
-                       .aspectRatio(4/5, contentMode: .fit) // Assuming a 4x5 Klotski board aspect ratio
-                       .frame(maxWidth: 320, maxHeight: 400) // Max dimensions
-                       .cornerRadius(10)
-                       .overlay(
-                           RoundedRectangle(cornerRadius: 10)
-                               .stroke(themeManager.currentTheme.sliderColor.color, lineWidth: 2)
-                       )
+                    // 游戏信息 (关卡名, 步数, 时间)
+                    gameInfoView.padding(.horizontal)
+
+                    // 游戏棋盘
+                    ZStack {
+                        // 棋盘背景和网格线
+                        BoardBackgroundView(
+                            widthCells: level.boardWidth,
+                            heightCells: level.boardHeight,
+                            cellSize: cellSize,
+                            theme: themeManager.currentTheme
+                        )
+                        .frame(width: boardTotalWidth, height: boardTotalHeight)
+
+                        // 渲染棋子
+                        ForEach(gameManager.pieces) { piece in
+                            PieceView(
+                                piece: piece,
+                                cellSize: cellSize,
+                                theme: themeManager.currentTheme,
+                                isDragging: draggingPieceInfo?.id == piece.id,
+                                dragOffset: (draggingPieceInfo?.id == piece.id) ? draggingPieceInfo!.offset : .zero
+                            )
+                            .position(
+                                x: CGFloat(piece.x) * cellSize + (CGFloat(piece.width) * cellSize / 2),
+                                y: CGFloat(piece.y) * cellSize + (CGFloat(piece.height) * cellSize / 2)
+                            )
+                            .offset( (draggingPieceInfo?.id == piece.id) ? draggingPieceInfo!.offset : .zero )
+                            .gesture(
+                                DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                                    .updating($draggingPieceInfo) { value, state, _ in
+                                        if state == nil { // 拖动开始
+                                            state = (id: piece.id, offset: .zero, initialPositionInDrag: value.location)
+                                        }
+                                        var newOffset = value.translation
+                                        
+                                        // 锁定轴向
+                                        if lockedDragAxis == nil {
+                                            if abs(newOffset.width) > abs(newOffset.height) {
+                                                lockedDragAxis = .horizontal
+                                            } else {
+                                                lockedDragAxis = .vertical
+                                            }
+                                        }
+                                        if lockedDragAxis == .horizontal { newOffset.height = 0 }
+                                        else { newOffset.width = 0 }
+
+                                        // 尝试将拖动量转换为格子单位，并进行碰撞检测
+                                        let attemptedDxCells = Int(round(newOffset.width / cellSize))
+                                        let attemptedDyCells = Int(round(newOffset.height / cellSize))
+                                        
+                                        var currentValidDxCells = 0
+                                        var currentValidDyCells = 0
+
+                                        if lockedDragAxis == .horizontal {
+                                            for i in 1...abs(attemptedDxCells) {
+                                                let stepDx = i * (attemptedDxCells > 0 ? 1 : -1)
+                                                if gameManager.canMove(pieceId: piece.id, dx: stepDx, dy: 0) {
+                                                    currentValidDxCells = stepDx
+                                                } else { break }
+                                            }
+                                        } else { // Vertical
+                                            for i in 1...abs(attemptedDyCells) {
+                                                let stepDy = i * (attemptedDyCells > 0 ? 1 : -1)
+                                                if gameManager.canMove(pieceId: piece.id, dx: 0, dy: stepDy) {
+                                                    currentValidDyCells = stepDy
+                                                } else { break }
+                                            }
+                                        }
+                                        
+                                        // 更新拖动偏移量，使其对齐到有效的格子
+                                        state!.offset = CGSize(width: CGFloat(currentValidDxCells) * cellSize, height: CGFloat(currentValidDyCells) * cellSize)
+                                    }
+                                    .onEnded { value in
+                                        let finalDxCells = Int(round(value.translation.width / cellSize))
+                                        let finalDyCells = Int(round(value.translation.height / cellSize))
+                                        
+                                        var actualDx = 0
+                                        var actualDy = 0
+
+                                        if lockedDragAxis == .horizontal {
+                                            actualDy = 0
+                                            for i in 1...abs(finalDxCells) {
+                                                 let stepDx = i * (finalDxCells > 0 ? 1 : -1)
+                                                 if gameManager.canMove(pieceId: piece.id, dx: stepDx, dy: 0) {
+                                                     actualDx = stepDx
+                                                 } else { break }
+                                             }
+                                        } else if lockedDragAxis == .vertical {
+                                            actualDx = 0
+                                             for i in 1...abs(finalDyCells) {
+                                                 let stepDy = i * (finalDyCells > 0 ? 1 : -1)
+                                                 if gameManager.canMove(pieceId: piece.id, dx: 0, dy: stepDy) {
+                                                     actualDy = stepDy
+                                                 } else { break }
+                                             }
+                                        }
+                                        
+                                        if actualDx != 0 || actualDy != 0 {
+                                            gameManager.attemptMove(pieceId: piece.id, dx: actualDx, dy: actualDy)
+                                        }
+                                        lockedDragAxis = nil // 重置锁定轴
+                                    }
+                            )
+                        }
+                    }
+                    .frame(width: boardTotalWidth, height: boardTotalHeight)
+                    .padding(.vertical)
                     
-                    Text("游戏区域占位符\nKlotski Board (4x5)")
-                       .multilineTextAlignment(.center)
-                       .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 16) : .body)
-                       .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
+                    if gameManager.isGameWon {
+                        Text("恭喜你，成功过关！")
+                            .font(.largeTitle).foregroundColor(.green).padding()
+                        Button("返回主菜单") { dismiss() }
+                           .buttonStyle(.borderedProminent)
+                    }
+
+
+                    Spacer() // 将棋盘推向中间
+
+                } else {
+                    Text("未选择关卡。请返回主菜单选择一个关卡。")
+                        .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                        .padding()
                 }
-               .padding()
-
-
-                HStack {
-                    Text("\(settingsManager.localizedString(forKey: "moves")): \(gameManager.moves)")
-                    Spacer()
-                    Text("\(settingsManager.localizedString(forKey: "time")): \(formattedTime(internalTimeElapsed))")
-                }
-               .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-               .padding()
-               .foregroundColor(themeManager.currentTheme.sliderColor.color)
-
-
-                Button("模拟移动滑块") { // Placeholder for actual game interaction
-                    gameManager.moveBlock()
-                }
-               .padding()
-               .buttonStyle(.bordered)
-               .tint(themeManager.currentTheme.sliderColor.color)
-
-
-                Button("模拟完成关卡") {
-                    gameManager.completeLevel(moves: gameManager.moves, time: internalTimeElapsed)
-                    // isGameActive will be set to false in completeLevel, triggering dismissal by navigationDestination
-                }
-               .padding()
-               .buttonStyle(.borderedProminent)
-               .tint(themeManager.currentTheme.sliderColor.color)
-                
-                Spacer()
-            } else {
-                Text("未选择关卡。请返回主菜单选择一个关卡。")
-                    .foregroundColor(themeManager.currentTheme.sliderColor.color)
-                    .padding()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // 使VStack充满GeometryReader
+            .navigationTitle(gameManager.currentLevel?.name ?? settingsManager.localizedString(forKey: "gameTitle"))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(gameManager.isGameActive && !gameManager.isGameWon)
+            .toolbar { navigationToolbarItems }
+            .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
+            .onAppear(perform: setupGameView)
+            .onDisappear(perform: cleanupGameView)
+            .onReceive(timer) { _ in if gameManager.isGameActive && !gameManager.isGameWon { internalTimeElapsed += 1 } }
         }
-       .navigationTitle(gameManager.currentLevel?.name ?? settingsManager.localizedString(forKey: "gameTitle"))
-       .navigationBarTitleDisplayMode(.inline)
-       .navigationBarBackButtonHidden(gameManager.isGameActive) // Hide back button while game is active to prevent accidental exit without saving
-       .toolbar {
-           ToolbarItem(placement: .navigationBarLeading) {
-               if gameManager.isGameActive { // Show a custom back/pause button if game is active
-                   Button {
-                       gameManager.saveGame()
-                       gameManager.isGameActive = false // This will trigger dismissal
-                   } label: {
-                       Image(systemName: "chevron.backward")
-                       Text("暂停") // Pause and go back
-                   }
-                   .tint(themeManager.currentTheme.sliderColor.color)
-               }
-           }
-       }
-       .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
-       .onAppear {
-            if gameManager.isGameActive { // Only sync and start timer if game is supposed to be active
-                internalTimeElapsed = gameManager.timeElapsed // Sync with manager on appear
-                startTimer()
-            } else {
-                // If GameView appears but game is not active (e.g., error or direct navigation attempt),
-                // consider dismissing or showing an error. For now, it shows "No level selected".
-            }
+    }
+
+    private var gameInfoView: some View {
+        HStack {
+            Text("\(settingsManager.localizedString(forKey: "level")): \(gameManager.currentLevel?.name ?? "N/A")")
+            Spacer()
+            Text("\(settingsManager.localizedString(forKey: "moves")): \(gameManager.moves)")
+            Spacer()
+            Text("\(settingsManager.localizedString(forKey: "time")): \(formattedTime(internalTimeElapsed))")
         }
-       .onDisappear {
-            stopTimer()
-            // Save game state if the game is still marked as active
-            // (e.g., if view disappears for reasons other than level completion or explicit pause)
-            if gameManager.isGameActive {
-                gameManager.timeElapsed = internalTimeElapsed
-                gameManager.saveGame()
-            }
-        }
-       .onReceive(timer) { _ in
-            if gameManager.isGameActive {
-                internalTimeElapsed += 1
+        .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 16) : .callout)
+        .foregroundColor(themeManager.currentTheme.sliderColor.color)
+    }
+
+    @ToolbarContentBuilder
+    private var navigationToolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            if gameManager.isGameActive && !gameManager.isGameWon {
+                Button {
+                    // gameManager.saveGame() // 拖动过程中不便保存，或考虑暂停菜单
+                    gameManager.isGameActive = false // 触发返回
+                    dismiss()
+                } label: { Image(systemName: "chevron.backward"); Text("暂停") }
+                .tint(themeManager.currentTheme.sliderColor.color)
             }
         }
     }
 
-    func startTimer() {
-        stopTimer() // Ensure no multiple timers are running
-        timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private func setupGameView() {
+        if gameManager.isGameActive {
+            internalTimeElapsed = gameManager.timeElapsed
+            startTimer()
+        }
+    }
+    private func cleanupGameView() {
+        stopTimer()
+        if gameManager.isGameActive && !gameManager.isGameWon {
+            gameManager.timeElapsed = internalTimeElapsed
+            // gameManager.saveGame() // 自动保存
+        }
+    }
+    private func startTimer() { stopTimer(); timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect() }
+    private func stopTimer() { timer.upstream.connect().cancel() }
+    private func formattedTime(_ totalSeconds: TimeInterval) -> String {
+        let m = Int(totalSeconds) / 60; let s = Int(totalSeconds) % 60
+        return String(format: "%02d:%02d", m, s)
+    }
+}
+
+// 棋盘背景和网格线视图
+struct BoardBackgroundView: View {
+    let widthCells: Int
+    let heightCells: Int
+    let cellSize: CGFloat
+    let theme: Theme
+
+    var body: some View {
+        ZStack {
+            // 棋盘背景色
+            Rectangle()
+                .fill(theme.boardBackgroundColor.color)
+            
+            // 绘制网格线
+            Path { path in
+                // 垂直线
+                for i in 0...widthCells {
+                    let x = CGFloat(i) * cellSize
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: CGFloat(heightCells) * cellSize))
+                }
+                // 水平线
+                for i in 0...heightCells {
+                    let y = CGFloat(i) * cellSize
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: CGFloat(widthCells) * cellSize, y: y))
+                }
+            }
+            .stroke(theme.boardGridLineColor.color, lineWidth: 1)
+        }
+    }
+}
+
+
+// 单个棋子视图
+struct PieceView: View {
+    let piece: Piece
+    let cellSize: CGFloat
+    let theme: Theme
+    var isDragging: Bool = false
+    var dragOffset: CGSize = .zero // 这个在 GameView 中更新，此处仅接收
+
+    // 辅助计算属性：创建并填充形状
+    @ViewBuilder
+    private var filledShapeView: some View {
+        switch theme.sliderShape {
+        case .roundedRectangle:
+            RoundedRectangle(cornerRadius: cellSize * 0.1)
+                .fill(theme.sliderColor.color)
+        case .square:
+            Rectangle()
+                .fill(theme.sliderColor.color)
+        case .customImage:
+            // TODO: 实现自定义图片逻辑
+            RoundedRectangle(cornerRadius: cellSize * 0.1) // 备用
+                .fill(theme.sliderColor.color)
+        }
     }
 
-    func stopTimer() {
-        timer.upstream.connect().cancel()
+    // 辅助计算属性：创建并描边形状
+    @ViewBuilder
+    private var strokedShapeView: some View {
+        switch theme.sliderShape {
+        case .roundedRectangle:
+            RoundedRectangle(cornerRadius: cellSize * 0.1)
+                .stroke(theme.sliderColor.color.opacity(0.5), lineWidth: 1)
+        case .square:
+            Rectangle()
+                .stroke(theme.sliderColor.color.opacity(0.5), lineWidth: 1)
+        case .customImage:
+            // TODO: 实现自定义图片逻辑的描边
+            RoundedRectangle(cornerRadius: cellSize * 0.1) // 备用
+                .stroke(theme.sliderColor.color.opacity(0.5), lineWidth: 1)
+        }
     }
     
-    func formattedTime(_ totalSeconds: TimeInterval) -> String {
-        let minutes = Int(totalSeconds) / 60
-        let seconds = Int(totalSeconds) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+    // 辅助计算属性，用于构建棋子上的文本内容
+    @ViewBuilder
+    private var pieceTextContent: some View {
+        if theme.sliderContent == .character || theme.sliderContent == .number {
+            Text(piece.type.displayName) // 或 piece.id.description (如果内容是数字)
+                .font(Font.system(size: calculateFontSize(for: piece, cellSize: cellSize)))
+                .fontWeight(.bold)
+                .foregroundColor(theme.sliderTextColor.color)
+        }
+        // TODO: 实现 .pattern 和 .none 的逻辑
+    }
+
+    var body: some View {
+        ZStack {
+            // 棋子背景 (填充和描边)
+            filledShapeView
+                .frame(width: CGFloat(piece.width) * cellSize - 2, height: CGFloat(piece.height) * cellSize - 2)
+                .overlay(
+                    strokedShapeView
+                        .frame(width: CGFloat(piece.width) * cellSize - 2, height: CGFloat(piece.height) * cellSize - 2) // 确保描边与填充对齐
+                )
+                .shadow(color: .black.opacity(isDragging ? 0.4 : 0.2), radius: isDragging ? 8 : 3, x: isDragging ? 4 : 1, y: isDragging ? 4 : 1)
+            
+            // 棋子内容
+            pieceTextContent
+        }
+        // 注意：dragOffset 是通过 .offset() 修饰符在 GameView 中应用的，这里不需要再处理
+        // .animation(.spring(), value: dragOffset) // 如果需要动画，应在 GameView 中应用到棋子位置或偏移上
+    }
+
+    private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat {
+        let baseSize = cellSize * 0.5
+        if piece.width == 1 && piece.height == 1 { // 兵
+            return baseSize * 0.8
+        }
+        if piece.width == 2 && piece.height == 2 { // 曹操
+            return baseSize * 1.2
+        }
+        return baseSize // 其他武将
     }
 }
 

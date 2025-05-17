@@ -26,7 +26,7 @@ struct KlotskiApp: App {
     }
 }
 
-// MARK: - Previews (预览)
+// MARK: - Previews
 struct MainMenuView_Previews: PreviewProvider {
     static var previews: some View {
         MainMenuView()
