@@ -143,41 +143,31 @@ class GameManager: ObservableObject {
         // saveGame() // 每次有效移动后保存游戏
     }
 
-    // 检查棋子是否可以移动到指定方向的指定格数 (用于拖动过程中的实时校验)
-    // pieceId: 要移动的棋子ID
-    // dx, dy: 尝试移动的格子数 (通常每次为 1 或 -1)
-    // returns: Bool - 是否可以移动
-    func canMove(pieceId: Int, dx: Int, dy: Int) -> Bool {
+    func canMove(pieceId: Int, currentGridX: Int, currentGridY: Int, deltaX: Int, deltaY: Int) -> Bool {
         guard let level = currentLevel, let pieceToMove = pieces.first(where: { $0.id == pieceId }) else {
             return false
         }
+        // 如果没有位移，则认为可以“移动”（停在原地）
+        if deltaX == 0 && deltaY == 0 { return true }
 
-        let newX = pieceToMove.x + dx
-        let newY = pieceToMove.y + dy
+        let newX = currentGridX + deltaX
+        let newY = currentGridY + deltaY
 
-        // 1. 边界检查
         guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
               newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
             return false // 超出边界
         }
 
-        // 2. 碰撞检查
-        // 检查目标位置的每一个格子是否为空，或者是否被当前正在移动的棋子自身占据 (这在单步检查中不应发生，但在多步检查中可能需要)
         for r_offset in 0..<pieceToMove.height {
             for c_offset in 0..<pieceToMove.width {
                 let targetBoardY = newY + r_offset
                 let targetBoardX = newX + c_offset
-                
-                // 获取目标格子上的棋子ID
-                let occupyingPieceId = gameBoard[targetBoardY][targetBoardX]
-                
-                // 如果目标格子上存在棋子，并且这个棋子不是当前正在移动的棋子，则发生碰撞
-                if let occupyingPieceId = occupyingPieceId, occupyingPieceId != pieceId {
+                if let occupyingPieceId = gameBoard[targetBoardY][targetBoardX], occupyingPieceId != pieceId {
                     return false // 碰撞
                 }
             }
         }
-        return true // 可以移动
+        return true
     }
 
 
