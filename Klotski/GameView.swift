@@ -82,14 +82,15 @@ struct GameView: View {
                                     )
                                     .gesture(pieceDragGesture(piece: piece, cellSize: cellSize))
                             }
+                            
+                            //显示完成视图
+                            if gameManager.isGameWon {
+                                victoryOverlay
+                            }
                         }
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameManager.pieces) // Animates piece movements
                         .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
                         .padding(.vertical)
-
-                        if gameManager.isGameWon {
-                            victoryOverlay
-                        }
                         
                         Spacer()
                     }
@@ -182,29 +183,34 @@ struct GameView: View {
 
     @ViewBuilder
     private var victoryOverlay: some View {
-        VStack {
+        VStack(spacing: 20) { // 增加间距
             Text(settingsManager.localizedString(forKey: "victoryTitle"))
-                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .font(.system(size: 36, weight: .bold, design: .rounded)) // 增大字体
                 .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
+                .padding(.bottom, 10) // 增加底部内边距
+
             Text(settingsManager.localizedString(forKey: "victoryMessage"))
-                .font(.headline)
+                .font(.title2) // 使用 title2 更突出
                 .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
+                .padding(.bottom, 20) // 增加底部内边距
             
-            Button(settingsManager.localizedString(forKey: "backToMenu")) {
-                dismiss() // GameManager state (isGameActive) should already be false
+            Button(action: {
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                gameManager.isGameActive = false // 在这里设置 isGameActive 为 false
+                dismiss()
+            }) {
+                Text(settingsManager.localizedString(forKey: "backToMenu"))
+                    .font(.headline)
+                    .padding(.horizontal, 30) // 增加按钮内边距
+                    .padding(.vertical, 15)
             }
-            .padding(.top)
-            .buttonStyle(MenuButtonStyle(themeManager: themeManager)) // Use MenuButton's style
+            .buttonStyle(MenuButtonStyle(themeManager: themeManager)) // 应用统一样式
         }
-        .padding(30)
-        .background(themeManager.currentTheme.sliderColor.color.opacity(0.85))
-        .cornerRadius(15)
-        .shadow(radius: 10)
-        .transition(.scale.combined(with: .opacity))
-        .onAppear {
-            SoundManager.playSound(named: "victory_fanfare", settings: settingsManager) // Placeholder sound name
-            SoundManager.playHapticNotification(type: .success, settings: settingsManager)
-        }
+        .padding(EdgeInsets(top: 40, leading: 30, bottom: 40, trailing: 30)) // 调整整体内边距
+        .background(themeManager.currentTheme.sliderColor.color.opacity(0.9)) // 背景更不透明一些
+        .cornerRadius(20) // 更大的圆角
+        .shadow(color: .black.opacity(0.3), radius: 10, x:0, y:5) // 调整阴影
+        .transition(.asymmetric(insertion: .scale.combined(with: .opacity), removal: .opacity))
     }
     
     private var gameInfoView: some View {
@@ -222,26 +228,42 @@ struct GameView: View {
     @ToolbarContentBuilder
     private var navigationToolbarItems: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
-            // Show pause/back button only if game is active AND not won
-            if gameManager.isGameActive && !gameManager.isGameWon {
+            if gameManager.isGameActive && !gameManager.isGameWon { // 仅当活跃且未胜利时显示
                 Button {
-                    gameManager.isGameActive = false // Effectively pauses the game timer and logic
-                    // gameManager.saveGame(settings: settingsManager) // Save on pause
-                    dismiss() // Go back to previous screen (e.g., level selection)
-                } label: {
-                    HStack {
-                        Image(systemName: "chevron.backward")
-                        Text(settingsManager.localizedString(forKey: "pause")) // Or "Back" or "Menu"
+                    gameManager.timeElapsed = internalTimeElapsed // 捕获当前时间
+                    if gameManager.isGameActive && !gameManager.isGameWon { // 再次检查以防万一
+                        print("暂停按钮按下：正在保存游戏...")
+                        gameManager.saveGame(settings: settingsManager) // 暂停时明确保存游戏
                     }
+                    gameManager.isGameActive = false // 这将通过 NavigationDestination 触发返回
+                    // dismiss() // 不需要显式调用 dismiss，isGameActive=false 会处理
+                } label: {
+                    HStack { Image(systemName: "chevron.backward"); Text(settingsManager.localizedString(forKey: "pause")) }
                 }
                 .tint(themeManager.currentTheme.sliderColor.color)
-            } else if gameManager.isGameWon { // If game is won, show a disabled or different button
-                 // Or nothing, as the victoryOverlay has a back button
             }
         }
     }
-    private func setupGameView(){if gameManager.isGameActive{internalTimeElapsed=gameManager.timeElapsed;startTimer()}}
-    private func cleanupGameView(){stopTimer();if gameManager.isGameActive && !gameManager.isGameWon{gameManager.timeElapsed=internalTimeElapsed; gameManager.saveGame(settings: settingsManager)}} // Save on disappear if game was active
+    private func setupGameView(){ 
+        if gameManager.isGameActive { internalTimeElapsed = gameManager.timeElapsed; startTimer() 
+    } else { print("GameView setup: gameManager is not active.")} }
+
+    private func cleanupGameView(){
+        stopTimer()
+        // 当视图消失时，如果游戏仍然被认为是活跃的（例如，不是通过胜利或暂停按钮正常退出）
+        // 并且未胜利，则保存其状态。
+        // 这主要处理应用进入后台或被系统中断的情况。
+        if gameManager.isGameActive && !gameManager.isGameWon {
+            print("GameView cleanup: Game is still active and not won. Saving time and game state.")
+            gameManager.timeElapsed = internalTimeElapsed
+            gameManager.saveGame(settings: settingsManager)
+        } else if gameManager.isGameWon {
+            print("GameView cleanup: Game was won. State should have been cleared.")
+        } else {
+            print("GameView cleanup: Game was not active (likely paused or dismissed normally). No save action here.")
+        }
+    }
+
     private func startTimer(){stopTimer();timer=Timer.publish(every:1,on:.main,in:.common).autoconnect()}
     private func stopTimer(){timer.upstream.connect().cancel()}
     private func formattedTime(_ tS:TimeInterval)->String{let m=Int(tS)/60;let s=Int(tS)%60;return String(format:"%02d:%02d",m,s)}

@@ -23,6 +23,12 @@ struct MainMenuView: View {
                    .font(.system(size: 36, weight: .bold, design: .rounded)) // Example of a custom font style
                    .padding(.top, 40)
                    .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                
+                // MARK: DEBUG: 显示 hasSavedGame 状态
+                Text("调试信息: hasSavedGame = \(gameManager.hasSavedGame.description)")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .padding(.top, 5)
 
                 Spacer()
 
@@ -71,6 +77,10 @@ struct MainMenuView: View {
            // Modifier for programmatic navigation to GameView
            .navigationDestination(isPresented: $gameManager.isGameActive) {
                GameView() // Destination view
+           }
+            // MARK: DEBUG: 视图出现时打印状态
+           .onAppear {
+               print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)") 
            }
         }
     }

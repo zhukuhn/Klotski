@@ -60,17 +60,27 @@ class GameManager: ObservableObject {
     
     
     init() {
-        // --- P1: Initialize hasSavedGame based on persistent state ---
-        let levelIDExists = UserDefaults.standard.string(forKey: savedLevelIDKey) != nil
-        let piecesDataExists = UserDefaults.standard.data(forKey: savedPiecesKey) != nil
-        
-        if levelIDExists && piecesDataExists {
+        let levelID = UserDefaults.standard.string(forKey: savedLevelIDKey)
+        let piecesData = UserDefaults.standard.data(forKey: savedPiecesKey)
+        let movesData = UserDefaults.standard.object(forKey: savedMovesKey) // 检查键是否存在
+        let timeData = UserDefaults.standard.object(forKey: savedTimeKey)   // 检查键是否存在
+
+        print("GameManager init: 正在检查已保存的数据...")
+        print("  - 关卡 ID: \(levelID ?? "无")")
+        print("  - 棋子数据: \(piecesData != nil ? "\(piecesData!.count) 字节" : "无")")
+        print("  - 步数: \(movesData != nil ? String(describing: UserDefaults.standard.integer(forKey: savedMovesKey)) : "无")")
+        print("  - 时间: \(timeData != nil ? String(describing: UserDefaults.standard.double(forKey: savedTimeKey)) : "无")")
+
+        // 严格检查：所有存档部分都必须存在才认为存档有效
+        if let id = levelID, piecesData != nil, movesData != nil, timeData != nil {
+            print("GameManager init: 发现有效的存档，关卡 ID \(id)。设置 hasSavedGame = true")
             hasSavedGame = true
         } else {
+            print("GameManager init: 未找到有效的完整存档或存档部分缺失。设置 hasSavedGame = false。")
             hasSavedGame = false
-            if levelIDExists || piecesDataExists { // If partially saved, it's corrupt
-                print("存档数据不完整或已损坏，将清除。")
-                // Clear only the keys, don't call clearSavedGame() which might print to console again
+            // 如果任何存档部分存在，说明存档不完整或已损坏，进行清理
+            if levelID != nil || piecesData != nil || movesData != nil || timeData != nil {
+                print("GameManager init: 正在清除部分或损坏的存档数据。")
                 UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
                 UserDefaults.standard.removeObject(forKey: savedMovesKey)
                 UserDefaults.standard.removeObject(forKey: savedTimeKey)
@@ -179,14 +189,14 @@ class GameManager: ObservableObject {
     
     
     func checkWinCondition(movedPiece: Piece, settings: SettingsManager) {
-        guard let level = currentLevel else { return }
+        guard let level = currentLevel, !isGameWon else { return } // 防止重复触发胜利
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
-            isGameActive = false // Stop timer and further moves
-            // SoundManager.playHapticNotification(type: .success, settings: settings) // Handled in GameView's .onAppear for win message
-            // SoundManager.playSound(named: "victory_sound", settings: settings) // Handled in GameView
+            // isGameActive = false; // 不在这里设置 isGameActive = false，交由 GameView 的胜利界面处理
             print("恭喜！关卡 \(level.name) 完成！总步数: \(moves)")
-            clearSavedGame() // Clear save for this completed level
+            SoundManager.playSound(named: "victory_fanfare", settings: settings) // 立即播放胜利音效
+            SoundManager.playHapticNotification(type: .success, settings: settings) // 立即播放胜利触感
+            clearSavedGame() // 清除已完成关卡的存档
         }
     }
     
@@ -235,22 +245,26 @@ class GameManager: ObservableObject {
     }
     
     func saveGame(settings: SettingsManager) {
-        guard let currentLevel = currentLevel, isGameActive else { return }
+        guard let currentLevel = currentLevel else {
+            print("SaveGame: 无当前关卡，无法保存。")
+            return
+        }
+        // 仅当游戏活跃且未胜利时才保存，以支持“继续游戏”功能
+        guard isGameActive && !isGameWon else {
+            print("SaveGame: 游戏非活跃或已胜利，跳过保存。isGameActive=\(isGameActive), isGameWon=\(isGameWon)")
+            return
+        }
         UserDefaults.standard.set(currentLevel.id, forKey: savedLevelIDKey)
         UserDefaults.standard.set(moves, forKey: savedMovesKey)
         UserDefaults.standard.set(timeElapsed, forKey: savedTimeKey)
-        
         do {
-            let encoder = JSONEncoder()
-            let encodedPieces = try encoder.encode(pieces)
+            let encodedPieces = try JSONEncoder().encode(pieces)
             UserDefaults.standard.set(encodedPieces, forKey: savedPiecesKey)
-            hasSavedGame = true // Ensure this is set
-            print("游戏已保存: \(currentLevel.name), 步数: \(moves), 棋子状态已保存。")
-            // SoundManager.playImpactHaptic(settings: settings) // Maybe too frequent if auto-saving
+            hasSavedGame = true // 关键：这会使“继续游戏”按钮出现
+            print("游戏已保存: \(currentLevel.name), 步数: \(moves)。hasSavedGame = \(hasSavedGame)")
         } catch {
             print("错误：无法编码并保存棋子状态: \(error)")
-            // Potentially clear hasSavedGame or parts of the save if critical encoding fails
-            hasSavedGame = false // If pieces can't be saved, the save is incomplete
+            hasSavedGame = false // 如果棋子无法保存，则存档不完整
         }
     }
     
