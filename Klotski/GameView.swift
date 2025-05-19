@@ -15,26 +15,44 @@ struct GameView: View {
     @Environment(\.dismiss) var dismiss
 
     // --- 拖动状态 ---
-    @State private var draggingPieceID: Int? = nil // 当前拖动的棋子ID
-    @State private var dragStartLocation: CGPoint? = nil // 手指开始拖动时的屏幕位置
-    @State private var pieceInitialGridPos: CGPoint? = nil // 棋子开始拖动时的格子位置 (x,y)
-    @State private var currentDragOffsetInCells: CGSize = .zero // 当前拖动累积的格子位移 (dx,dy)
-                                                              // 这个值会在拖动过程中根据canMove的结果更新
+    @State private var draggingPieceID: Int? = nil
+    @State private var pieceInitialGridPos_onDragStart: CGPoint? = nil
+    @State private var fingerStartScreenPos_onDragStart: CGPoint? = nil
+    @State private var currentValidCumulativeGridOffset: CGSize = .zero
+
+    // --- 新增：可调拖动吸附阈值 ---
+    // 代表需要拖动超过格子尺寸的多少比例才吸附到下一个格子。
+    // 0.5 表示标准的四舍五入 (拖动半格)。
+    // 较小的值 (如 0.3) 表示更灵敏，拖动较少距离就吸附。
+    // 较大的值 (如 0.7) 表示需要拖动更多距离才吸附。
+    @State private var dragSnapThresholdFactor: CGFloat = 0.2 // 您可以更改此值进行测试
 
     // --- 计时器等其他状态 ---
     @State private var timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var internalTimeElapsed: TimeInterval = 0
     
     private let boardPadding: CGFloat = 10
+
     private func calculateCellSize(geometry: GeometryProxy, boardWidthCells: Int, boardHeightCells: Int) -> CGFloat {
         guard boardWidthCells > 0, boardHeightCells > 0 else { return 1 }
-        let boardAreaWidth = geometry.size.width - (boardPadding * 2)
-        let boardAreaHeight = geometry.size.height * 0.6 - (boardPadding * 2)
-        guard boardAreaWidth > 0, boardAreaHeight > 0 else { return 1 }
-        let cellWidth = boardAreaWidth / CGFloat(boardWidthCells)
-        let cellHeight = boardAreaHeight / CGFloat(boardHeightCells)
-        let minSize = min(cellWidth, cellHeight)
-        return max(1, min(minSize, 80)) // 确保cellSize至少为1
+        let availableWidth = geometry.size.width - (boardPadding * 2)
+        // Allocate more height for game board, e.g., 70% of available height if info view is present
+        let availableHeight = (geometry.size.height * (gameManager.isGameWon ? 0.8 : 0.7)) - (boardPadding * 2) // Adjust based on win state
+        guard availableWidth > 0, availableHeight > 0 else { return 1 }
+        return max(1, min(availableWidth / CGFloat(boardWidthCells), availableHeight / CGFloat(boardHeightCells), 80)) // Max cell size 80
+    }
+
+    // 自定义取整函数，基于阈值
+    private func customRoundWithThreshold(_ value: CGFloat, threshold: CGFloat) -> Int {
+        let absoluteValue = abs(value)
+        let sign = value >= 0 ? 1 : -1
+        
+        // 检查是否超过了整数部分加上阈值
+        if absoluteValue.truncatingRemainder(dividingBy: 1.0) >= threshold {
+            return Int(ceil(absoluteValue)) * sign
+        } else {
+            return Int(floor(absoluteValue)) * sign
+        }
     }
 
     var body: some View {
@@ -46,9 +64,33 @@ struct GameView: View {
                     if cellSize <= 1 {
                         Text("错误：棋盘尺寸计算异常。").foregroundColor(.red).frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        gameInfoView.padding(.horizontal)
-                        gameBoardArea(level: level, cellSize: cellSize) // 传递cellSize
-                        if gameManager.isGameWon { /* ... 胜利UI ... */ Text("恭喜！").font(.largeTitle); Button("返回"){dismiss()} }
+                        
+                        gameInfoView.padding(.horizontal, 40).padding(.top, 40)
+                        ZStack {
+                            BoardBackgroundView(widthCells: level.boardWidth, heightCells: level.boardHeight, cellSize: cellSize, theme: themeManager.currentTheme)
+                                .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
+
+                            ForEach(gameManager.pieces) { piece in
+                                PieceView(piece: piece, cellSize: cellSize, theme: themeManager.currentTheme, isDragging: piece.id == draggingPieceID)
+                                    .position(
+                                        x: CGFloat(piece.x) * cellSize + (CGFloat(piece.width) * cellSize / 2),
+                                        y: CGFloat(piece.y) * cellSize + (CGFloat(piece.height) * cellSize / 2)
+                                    )
+                                    .offset( // This offset is for visual drag effect only
+                                        x: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.width * cellSize : 0,
+                                        y: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.height * cellSize : 0
+                                    )
+                                    .gesture(pieceDragGesture(piece: piece, cellSize: cellSize))
+                            }
+                        }
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameManager.pieces) // Animates piece movements
+                        .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
+                        .padding(.vertical)
+
+                        if gameManager.isGameWon {
+                            victoryOverlay
+                        }
+                        
                         Spacer()
                     }
                 } else {
@@ -56,7 +98,7 @@ struct GameView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(gameManager.currentLevel?.name ?? "")
+            .navigationTitle(gameManager.currentLevel?.name ?? settingsManager.localizedString(forKey: "gameTitle"))
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(gameManager.isGameActive && !gameManager.isGameWon)
             .toolbar { navigationToolbarItems }
@@ -67,138 +109,139 @@ struct GameView: View {
         }
     }
 
-        @ViewBuilder
-        private func gameBoardArea(level: Level, cellSize: CGFloat) -> some View {
-            let boardTotalWidth = cellSize * CGFloat(level.boardWidth)
-            let boardTotalHeight = cellSize * CGFloat(level.boardHeight)
+    func pieceDragGesture(piece: Piece, cellSize: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 5, coordinateSpace: .global)
+            .onChanged { value in
+                guard cellSize > 0, !gameManager.isGameWon else { return }
 
-            ZStack {
-                BoardBackgroundView(widthCells: level.boardWidth, heightCells: level.boardHeight, cellSize: cellSize, theme: themeManager.currentTheme)
-                    .frame(width: boardTotalWidth, height: boardTotalHeight)
+                if draggingPieceID == nil { // Start of a new drag
+                    draggingPieceID = piece.id
+                    pieceInitialGridPos_onDragStart = CGPoint(x: piece.x, y: piece.y)
+                    fingerStartScreenPos_onDragStart = value.startLocation
+                    currentValidCumulativeGridOffset = .zero // Reset offset
+                    SoundManager.playImpactHaptic(settings: settingsManager) // Haptic for drag start
+                }
 
-                ForEach(gameManager.pieces) { piece in
-                    PieceView(
-                        piece: piece,
-                        cellSize: cellSize,
-                        theme: themeManager.currentTheme,
-                        isDragging: piece.id == draggingPieceID
-                    )
-                    .position( // 棋子的基础逻辑位置
-                        x: CGFloat(piece.x) * cellSize + (CGFloat(piece.width) * cellSize / 2),
-                        y: CGFloat(piece.y) * cellSize + (CGFloat(piece.height) * cellSize / 2)
-                    )
-                    .offset( // 应用拖动时的视觉偏移 (基于累积的有效格子位移)
-                        x: piece.id == draggingPieceID ? currentDragOffsetInCells.width * cellSize : 0,
-                        y: piece.id == draggingPieceID ? currentDragOffsetInCells.height * cellSize : 0
-                    )
-                    .gesture(
-                        DragGesture(minimumDistance: 5, coordinateSpace: .global) // 使用 .global 更易于计算总位移
-                            .onChanged { value in
-                                guard cellSize > 0 else { return }
+                guard draggingPieceID == piece.id,
+                      let initialGridPos = pieceInitialGridPos_onDragStart,
+                      let fingerStartPos = fingerStartScreenPos_onDragStart else { return }
 
-                                if draggingPieceID == nil { // 拖动开始
-                                    draggingPieceID = piece.id
-                                    pieceInitialGridPos = CGPoint(x: piece.x, y: piece.y)
-                                    dragStartLocation = value.startLocation // 手指开始的屏幕位置
-                                    currentDragOffsetInCells = .zero // 重置累积格子偏移
-                                }
-
-                                guard draggingPieceID == piece.id,
-                                      let initialGridPos = pieceInitialGridPos,
-                                      let startScreenPos = dragStartLocation else { return }
-
-                                // 1. 计算手指当前总的屏幕拖动位移
-                                let totalScreenDrag = CGSize(
-                                    width: value.location.x - startScreenPos.x,
-                                    height: value.location.y - startScreenPos.y
-                                )
-
-                                // 2. 将总屏幕拖动位移转换为目标格子位移
-                                let targetGridDeltaX = Int(round(totalScreenDrag.width / cellSize))
-                                let targetGridDeltaY = Int(round(totalScreenDrag.height / cellSize))
-                                
-                                // 3. 从当前已累积的有效格子位移 (currentDragOffsetInCells) 尝试向目标格子位移移动
-                                var nextCumulativeGridDelta = currentDragOffsetInCells
-                                
-                                // 尝试水平移动一步
-                                if Int(nextCumulativeGridDelta.width) != targetGridDeltaX {
-                                    let stepX = (targetGridDeltaX > Int(nextCumulativeGridDelta.width)) ? 1 : -1
-                                    if gameManager.canMove(pieceId: piece.id,
-                                                           currentGridX: Int(initialGridPos.x) + Int(nextCumulativeGridDelta.width),
-                                                           currentGridY: Int(initialGridPos.y) + Int(nextCumulativeGridDelta.height),
-                                                           deltaX: stepX, deltaY: 0) {
-                                        nextCumulativeGridDelta.width += CGFloat(stepX)
-                                    }
-                                }
-                                
-                                // 尝试垂直移动一步 (基于可能已更新的水平位置)
-                                if Int(nextCumulativeGridDelta.height) != targetGridDeltaY {
-                                    let stepY = (targetGridDeltaY > Int(nextCumulativeGridDelta.height)) ? 1 : -1
-                                    if gameManager.canMove(pieceId: piece.id,
-                                                           currentGridX: Int(initialGridPos.x) + Int(nextCumulativeGridDelta.width), // 使用最新的累积X
-                                                           currentGridY: Int(initialGridPos.y) + Int(nextCumulativeGridDelta.height),
-                                                           deltaX: 0, deltaY: stepY) {
-                                        nextCumulativeGridDelta.height += CGFloat(stepY)
-                                    }
-                                }
-                                
-                                // 4. 更新当前有效的累积格子偏移
-                                currentDragOffsetInCells = nextCumulativeGridDelta
-                            }
-                            .onEnded { value in
-                                guard let pieceId = draggingPieceID,
-                                      currentDragOffsetInCells.width != 0 || currentDragOffsetInCells.height != 0 else {
-                                    // 如果没有有效移动，或者没有棋子在拖动，则重置
-                                    draggingPieceID = nil
-                                    pieceInitialGridPos = nil
-                                    dragStartLocation = nil
-                                    currentDragOffsetInCells = .zero
-                                    return
-                                }
-
-                                gameManager.attemptMove(pieceId: pieceId,
-                                                        dx: Int(currentDragOffsetInCells.width),
-                                                        dy: Int(currentDragOffsetInCells.height))
-
-                                // 重置拖动状态
-                                draggingPieceID = nil
-                                pieceInitialGridPos = nil
-                                dragStartLocation = nil
-                                currentDragOffsetInCells = .zero
-                            }
-                    )
+                let totalScreenDrag = CGSize(width: value.location.x - fingerStartPos.x, height: value.location.y - fingerStartPos.y)
+                let targetTotalGridDeltaX = customRoundWithThreshold(totalScreenDrag.width / cellSize, threshold: dragSnapThresholdFactor)
+                let targetTotalGridDeltaY = customRoundWithThreshold(totalScreenDrag.height / cellSize, threshold: dragSnapThresholdFactor)
+                
+                var newCumulativeGridOffset = currentValidCumulativeGridOffset
+                
+                if Int(newCumulativeGridOffset.width) != targetTotalGridDeltaX {
+                    let stepX = (targetTotalGridDeltaX > Int(newCumulativeGridOffset.width)) ? 1 : -1
+                    if gameManager.canMove(pieceId: piece.id, currentGridX: Int(initialGridPos.x) + Int(newCumulativeGridOffset.width), currentGridY: Int(initialGridPos.y) + Int(newCumulativeGridOffset.height), deltaX: stepX, deltaY: 0) {
+                        newCumulativeGridOffset.width += CGFloat(stepX)
+                    }
+                }
+                
+                if Int(newCumulativeGridOffset.height) != targetTotalGridDeltaY {
+                    let stepY = (targetTotalGridDeltaY > Int(newCumulativeGridOffset.height)) ? 1 : -1
+                    if gameManager.canMove(pieceId: piece.id, currentGridX: Int(initialGridPos.x) + Int(newCumulativeGridOffset.width), currentGridY: Int(initialGridPos.y) + Int(newCumulativeGridOffset.height), deltaX: 0, deltaY: stepY) {
+                        newCumulativeGridOffset.height += CGFloat(stepY)
+                    }
+                }
+                
+                if newCumulativeGridOffset != currentValidCumulativeGridOffset {
+                    currentValidCumulativeGridOffset = newCumulativeGridOffset
+                    // SoundManager.playImpactHaptic(settings: settingsManager) // Haptic for each grid snap (can be too much)
                 }
             }
-            .frame(width: boardTotalWidth, height: boardTotalHeight)
-            .padding(.vertical)
+            .onEnded { value in
+                guard let pieceId = draggingPieceID,
+                      (currentValidCumulativeGridOffset.width != 0 || currentValidCumulativeGridOffset.height != 0) else {
+                    // No significant drag, or drag ended without valid offset
+                    draggingPieceID = nil; pieceInitialGridPos_onDragStart = nil; fingerStartScreenPos_onDragStart = nil; currentValidCumulativeGridOffset = .zero
+                    return
+                }
+
+                let finalDx = Int(currentValidCumulativeGridOffset.width)
+                let finalDy = Int(currentValidCumulativeGridOffset.height)
+
+                // Reset drag states BEFORE model update for cleaner animation
+                self.draggingPieceID = nil
+                self.pieceInitialGridPos_onDragStart = nil
+                self.fingerStartScreenPos_onDragStart = nil
+                self.currentValidCumulativeGridOffset = .zero
+
+                // Attempt the move. Changes to gameManager.pieces will be animated.
+                let moveSuccessful = gameManager.attemptMove(pieceId: pieceId, dx: finalDx, dy: finalDy, settings: settingsManager)
+
+                if moveSuccessful {
+                    SoundManager.playImpactHaptic(settings: settingsManager)
+                } else if (finalDx != 0 || finalDy != 0) { // Attempted a move but it was invalid
+                    SoundManager.playHapticNotification(type: .error, settings: settingsManager)
+                    // The piece will snap back due to animation on gameManager.pieces and offset reset
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var victoryOverlay: some View {
+        VStack {
+            Text(settingsManager.localizedString(forKey: "victoryTitle"))
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
+            Text(settingsManager.localizedString(forKey: "victoryMessage"))
+                .font(.headline)
+                .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
+            
+            Button(settingsManager.localizedString(forKey: "backToMenu")) {
+                dismiss() // GameManager state (isGameActive) should already be false
+            }
+            .padding(.top)
+            .buttonStyle(MenuButtonStyle(themeManager: themeManager)) // Use MenuButton's style
         }
-
-
+        .padding(30)
+        .background(themeManager.currentTheme.sliderColor.color.opacity(0.85))
+        .cornerRadius(15)
+        .shadow(radius: 10)
+        .transition(.scale.combined(with: .opacity))
+        .onAppear {
+            SoundManager.playSound(named: "victory_fanfare", settings: settingsManager) // Placeholder sound name
+            SoundManager.playHapticNotification(type: .success, settings: settingsManager)
+        }
+    }
+    
     private var gameInfoView: some View {
         HStack {
-            Text("\(settingsManager.localizedString(forKey: "level")): \(gameManager.currentLevel?.name ?? "N/A")")
-            Spacer()
-            Text("\(settingsManager.localizedString(forKey: "moves")): \(gameManager.moves)")
-            Spacer()
+            //Text("\(settingsManager.localizedString(forKey: "level")): \(gameManager.currentLevel?.name ?? "N/A")")
+            //Spacer()
             Text("\(settingsManager.localizedString(forKey: "time")): \(formattedTime(internalTimeElapsed))")
+            Spacer()
+            Text("\(settingsManager.localizedString(forKey: "moves")): \(gameManager.moves)").frame(width:80, alignment: .leading)
         }
         .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 16) : .callout)
         .foregroundColor(themeManager.currentTheme.sliderColor.color)
     }
+    
     @ToolbarContentBuilder
     private var navigationToolbarItems: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
+            // Show pause/back button only if game is active AND not won
             if gameManager.isGameActive && !gameManager.isGameWon {
                 Button {
-                    gameManager.isGameActive = false
-                    dismiss()
-                } label: { Image(systemName: "chevron.backward"); Text("暂停") }
+                    gameManager.isGameActive = false // Effectively pauses the game timer and logic
+                    // gameManager.saveGame(settings: settingsManager) // Save on pause
+                    dismiss() // Go back to previous screen (e.g., level selection)
+                } label: {
+                    HStack {
+                        Image(systemName: "chevron.backward")
+                        Text(settingsManager.localizedString(forKey: "pause")) // Or "Back" or "Menu"
+                    }
+                }
                 .tint(themeManager.currentTheme.sliderColor.color)
+            } else if gameManager.isGameWon { // If game is won, show a disabled or different button
+                 // Or nothing, as the victoryOverlay has a back button
             }
         }
     }
     private func setupGameView(){if gameManager.isGameActive{internalTimeElapsed=gameManager.timeElapsed;startTimer()}}
-    private func cleanupGameView(){stopTimer();if gameManager.isGameActive && !gameManager.isGameWon{gameManager.timeElapsed=internalTimeElapsed}}
+    private func cleanupGameView(){stopTimer();if gameManager.isGameActive && !gameManager.isGameWon{gameManager.timeElapsed=internalTimeElapsed; gameManager.saveGame(settings: settingsManager)}} // Save on disappear if game was active
     private func startTimer(){stopTimer();timer=Timer.publish(every:1,on:.main,in:.common).autoconnect()}
     private func stopTimer(){timer.upstream.connect().cancel()}
     private func formattedTime(_ tS:TimeInterval)->String{let m=Int(tS)/60;let s=Int(tS)%60;return String(format:"%02d:%02d",m,s)}
@@ -318,124 +361,5 @@ struct PieceView: View {
             return baseSize * 1.2
         }
         return baseSize // 其他武将
-    }
-}
-
-// MARK: 棋子移动状态视图
-struct PieceWithGestureView: View {
-    let piece: Piece // 当前视图代表的棋子数据
-    let cellSize: CGFloat
-    
-    @ObservedObject var gameManager: GameManager // 用于调用 canMove 和 attemptMove
-    @EnvironmentObject var themeManager: ThemeManager // 用于获取主题以传递给 PieceView
-
-    // 绑定到 GameView 中的状态，用于协调拖动
-    @Binding var draggedPieceId_GV: Int? // GameView 中当前被拖动棋子的ID
-    @Binding var draggedPiece_visualOffset_GV: CGSize // GameView 中棋子的视觉偏移
-    @Binding var draggedPiece_startGridPos_GV: CGPoint? // GameView 中拖动开始的格子位置
-    @Binding var draggedPiece_cumulativeGridDelta_GV: CGSize // GameView 中累积的格子位移
-
-    var body: some View {
-        PieceView(
-            piece: piece,
-            cellSize: cellSize,
-            theme: themeManager.currentTheme,
-            isDragging: piece.id == draggedPieceId_GV // 根据 GameView 的状态判断是否高亮
-        )
-        // 注意：.position 和 .offset 是在 GameView 的 ForEach 中应用的
-        .gesture(
-            DragGesture(minimumDistance: 5, coordinateSpace: .local) // 使用 .local 通常更简单
-                .onChanged { value in
-                    guard cellSize > 0 else { return }
-
-                    if draggedPieceId_GV == nil { // 拖动开始
-                        draggedPieceId_GV = piece.id
-                        draggedPiece_startGridPos_GV = CGPoint(x: piece.x, y: piece.y)
-                        draggedPiece_cumulativeGridDelta_GV = .zero
-                        draggedPiece_visualOffset_GV = .zero
-                    }
-                    
-                    // 确保当前手势操作的是这个 PieceWithGestureView 对应的棋子
-                    guard draggedPieceId_GV == piece.id, let startGridPos = draggedPiece_startGridPos_GV else { return }
-
-                    let currentTotalRawPixelDrag = value.translation
-                    let lastCommittedPixelDrag = CGSize(
-                        width: draggedPiece_cumulativeGridDelta_GV.width * cellSize,
-                        height: draggedPiece_cumulativeGridDelta_GV.height * cellSize
-                    )
-                    let pixelDeltaSinceLastCommit = CGSize(
-                        width: currentTotalRawPixelDrag.width - lastCommittedPixelDrag.width,
-                        height: currentTotalRawPixelDrag.height - lastCommittedPixelDrag.height
-                    )
-
-                    var stepDx = 0
-                    var stepDy = 0
-                    let snapThreshold = cellSize * 0.4 // 稍微减小阈值，更容易触发单步
-
-                    // 优先确定主要拖动方向的意图
-                    if abs(pixelDeltaSinceLastCommit.width) > abs(pixelDeltaSinceLastCommit.height) { // 水平优先
-                        if abs(pixelDeltaSinceLastCommit.width) >= snapThreshold {
-                            stepDx = pixelDeltaSinceLastCommit.width > 0 ? 1 : -1
-                        }
-                    } else { // 垂直优先或相等
-                        if abs(pixelDeltaSinceLastCommit.height) >= snapThreshold {
-                            stepDy = pixelDeltaSinceLastCommit.height > 0 ? 1 : -1
-                        }
-                    }
-                    
-                    // 如果有明确的单步移动意图
-                    if stepDx != 0 || stepDy != 0 {
-                        let currentLogicalGridX = Int(startGridPos.x) + Int(draggedPiece_cumulativeGridDelta_GV.width)
-                        let currentLogicalGridY = Int(startGridPos.y) + Int(draggedPiece_cumulativeGridDelta_GV.height)
-                        
-                        var movedThisStep = false
-                        // 尝试主要意图方向
-                        if stepDx != 0 { // 水平意图
-                            if gameManager.canMove(pieceId: piece.id, currentGridX: currentLogicalGridX, currentGridY: currentLogicalGridY, deltaX: stepDx, deltaY: 0) {
-                                draggedPiece_cumulativeGridDelta_GV.width += CGFloat(stepDx)
-                                movedThisStep = true
-                            }
-                        }
-                        
-                        // 如果主要方向（水平）未移动成功，且有垂直意图，则尝试垂直移动
-                        if !movedThisStep && stepDy != 0 { // 垂直意图
-                            if gameManager.canMove(pieceId: piece.id, currentGridX: currentLogicalGridX, currentGridY: currentLogicalGridY, deltaX: 0, deltaY: stepDy) {
-                                draggedPiece_cumulativeGridDelta_GV.height += CGFloat(stepDy)
-                                // movedThisStep = true // 可选
-                            }
-                        }
-                    }
-                    
-                    // 更新 GameView 中的视觉偏移量
-                    draggedPiece_visualOffset_GV = CGSize(
-                        width: draggedPiece_cumulativeGridDelta_GV.width * cellSize,
-                        height: draggedPiece_cumulativeGridDelta_GV.height * cellSize
-                    )
-                }
-                .onEnded { value in
-                    // 使用 piece.id，因为 draggedPieceId_GV 此时应该等于 piece.id
-                    guard draggedPieceId_GV == piece.id else {
-                        // 如果不是当前棋子，可能是手势意外结束，重置以防万一
-                        draggedPieceId_GV = nil
-                        draggedPiece_startGridPos_GV = nil
-                        draggedPiece_cumulativeGridDelta_GV = .zero
-                        draggedPiece_visualOffset_GV = .zero
-                        return
-                    }
-                    
-                    let finalGridDeltaX = Int(draggedPiece_cumulativeGridDelta_GV.width)
-                    let finalGridDeltaY = Int(draggedPiece_cumulativeGridDelta_GV.height)
-
-                    if finalGridDeltaX != 0 || finalGridDeltaY != 0 {
-                        gameManager.attemptMove(pieceId: piece.id, dx: finalGridDeltaX, dy: finalGridDeltaY)
-                    }
-
-                    // 重置 GameView 中的拖动状态
-                    draggedPieceId_GV = nil
-                    draggedPiece_startGridPos_GV = nil
-                    draggedPiece_cumulativeGridDelta_GV = .zero
-                    draggedPiece_visualOffset_GV = .zero
-                }
-        )
     }
 }

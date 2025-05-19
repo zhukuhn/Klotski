@@ -98,8 +98,8 @@ struct LoginView: View {
                    .tint(themeManager.currentTheme.sliderColor.color)
                 }
             }
-           .onChange(of: authManager.isLoggedIn) { oldValue, newValue in // Use newValue directly
-                if newValue {
+           .onChange(of: authManager.isLoggedIn) { oldValue, newValue in //这里正常没有报错
+               if newValue {
                     dismiss()
                 }
             }

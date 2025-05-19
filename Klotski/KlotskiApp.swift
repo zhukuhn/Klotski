@@ -13,6 +13,7 @@ struct KlotskiApp: App {
     @StateObject var themeManager = ThemeManager()
     @StateObject var authManager = AuthManager()
     @StateObject var settingsManager = SettingsManager()
+    @Environment(\.scenePhase) var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -21,7 +22,16 @@ struct KlotskiApp: App {
                .environmentObject(themeManager)
                .environmentObject(authManager)
                .environmentObject(settingsManager)
-               .preferredColorScheme(themeManager.currentTheme.swiftUIScheme) // Example of applying theme
+               .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
+               .onChange(of: scenePhase) { (oldPhase: ScenePhase, newPhase: ScenePhase) in
+                   // Auto-save game when app goes to background or becomes inactive
+                   if newPhase == .background || newPhase == .inactive {
+                       if gameManager.isGameActive && !gameManager.isGameWon {
+                           gameManager.saveGame(settings: settingsManager) // Pass settings for sound
+                           print("App entering background/inactive, game saved.")
+                       }
+                   }
+               }
         }
     }
 }

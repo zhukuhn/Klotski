@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import AVFoundation // For future sound implementation
+import UIKit // For Haptics
 
 class GameManager: ObservableObject {
     @Published var currentLevel: Level?
@@ -13,151 +15,156 @@ class GameManager: ObservableObject {
     @Published var gameBoard: [[Int?]] = [] // 棋盘网格，存储占据该格子的棋子ID，nil表示空格。Int? 而非 Int 是因为 0 可能是一个有效的棋子ID
     
     static let classicLevel = Level(
-        id: "classic_hdml", name: "横刀立马",
-        boardWidth: 4, boardHeight: 5,
+        id: "classic_hdml", name: "横刀立马", boardWidth: 4, boardHeight: 5,
         piecePlacements: [
-            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),      // 曹操
-            PiecePlacement(id: 2, type: .guanYuH, initialX: 1, initialY: 2),     // 关羽 (横)
-            PiecePlacement(id: 3, type: .zhangFeiV, initialX: 0, initialY: 0),   // 张飞 (竖)
-            PiecePlacement(id: 4, type: .zhaoYunV, initialX: 3, initialY: 0),    // 赵云 (竖)
-            PiecePlacement(id: 5, type: .maChaoV, initialX: 0, initialY: 2),     // 马超 (竖)
-            PiecePlacement(id: 6, type: .huangZhongV, initialX: 3, initialY: 2),  // 黄忠 (竖)
-            PiecePlacement(id: 7, type: .soldier, initialX: 1, initialY: 3),     // 兵1
-            PiecePlacement(id: 8, type: .soldier, initialX: 2, initialY: 3),     // 兵2
-            PiecePlacement(id: 9, type: .soldier, initialX: 0, initialY: 4),     // 兵3
-            PiecePlacement(id: 10, type: .soldier, initialX: 3, initialY: 4)     // 兵4
-        ],
-        targetPieceId: 1, targetX: 1, targetY: 3, // 曹操的目标位置 (出口在下方中间)
-        isUnlocked: true
+            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0), PiecePlacement(id: 2, type: .guanYuH, initialX: 1, initialY: 2),
+            PiecePlacement(id: 3, type: .zhangFeiV, initialX: 0, initialY: 0), PiecePlacement(id: 4, type: .zhaoYunV, initialX: 3, initialY: 0),
+            PiecePlacement(id: 5, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 6, type: .huangZhongV, initialX: 3, initialY: 2),
+            PiecePlacement(id: 7, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 8, type: .soldier, initialX: 2, initialY: 3),
+            PiecePlacement(id: 9, type: .soldier, initialX: 0, initialY: 4), PiecePlacement(id: 10, type: .soldier, initialX: 3, initialY: 4)
+        ], targetPieceId: 1, targetX: 1, targetY: 3, isUnlocked: true
     )
-
+    static let easyExitLevel = Level(
+        id: "easy_exit", name: "兵临城下", boardWidth: 4, boardHeight: 5,
+        piecePlacements: [
+            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),
+            PiecePlacement(id: 2, type: .soldier, initialX: 0, initialY: 0), PiecePlacement(id: 3, type: .soldier, initialX: 3, initialY: 0),
+            PiecePlacement(id: 4, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 5, type: .soldier, initialX: 2, initialY: 2),
+            PiecePlacement(id: 6, type: .guanYuH, initialX: 1, initialY: 3) // Blocks exit initially
+        ], targetPieceId: 1, targetX: 1, targetY: 3, isUnlocked: true
+    )
+    static let verticalChallengeLevel = Level(
+        id: "vertical_challenge", name: "层峦叠嶂", boardWidth: 4, boardHeight: 5,
+        piecePlacements: [
+            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),
+            PiecePlacement(id: 2, type: .zhangFeiV, initialX: 0, initialY: 0), PiecePlacement(id: 3, type: .zhaoYunV, initialX: 3, initialY: 0),
+            PiecePlacement(id: 4, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 5, type: .huangZhongV, initialX: 3, initialY: 2),
+            PiecePlacement(id: 6, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 7, type: .soldier, initialX: 2, initialY: 2),
+            PiecePlacement(id: 8, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 9, type: .soldier, initialX: 2, initialY: 3),
+        ], targetPieceId: 1, targetX: 1, targetY: 3, isUnlocked: true
+    )
+    
     @Published var levels: [Level] = [classicLevel] // 更多关卡可以后续添加
-
+    
     @Published var moves: Int = 0
     @Published var timeElapsed: TimeInterval = 0
     @Published var isGameActive: Bool = false
     @Published var hasSavedGame: Bool = false
     @Published var isGameWon: Bool = false
-
-
+    
+    // --- P1: Keys for UserDefaults ---
+    private let savedLevelIDKey = "savedKlotskiLevelID"
+    private let savedMovesKey = "savedKlotskiMoves"
+    private let savedTimeKey = "savedKlotskiTime"
+    private let savedPiecesKey = "savedKlotskiPieces"
+    
+    
     init() {
-        if UserDefaults.standard.string(forKey: "savedLevelID") != nil {
-            // TODO: 完善存档加载逻辑，目前仅设置标志
-            // hasSavedGame = true
+        // --- P1: Initialize hasSavedGame based on persistent state ---
+        let levelIDExists = UserDefaults.standard.string(forKey: savedLevelIDKey) != nil
+        let piecesDataExists = UserDefaults.standard.data(forKey: savedPiecesKey) != nil
+        
+        if levelIDExists && piecesDataExists {
+            hasSavedGame = true
+        } else {
+            hasSavedGame = false
+            if levelIDExists || piecesDataExists { // If partially saved, it's corrupt
+                print("存档数据不完整或已损坏，将清除。")
+                // Clear only the keys, don't call clearSavedGame() which might print to console again
+                UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
+                UserDefaults.standard.removeObject(forKey: savedMovesKey)
+                UserDefaults.standard.removeObject(forKey: savedTimeKey)
+                UserDefaults.standard.removeObject(forKey: savedPiecesKey)
+            }
         }
     }
-
-    func startGame(level: Level) {
+    
+    func startGame(level: Level, settings: SettingsManager) {
         currentLevel = level
         moves = 0
-        timeElapsed = 0
+        timeElapsed = 0 // Reset time for new game
         isGameActive = true
         isGameWon = false
         
-        // 1. 初始化棋子实例
-        pieces = level.piecePlacements.map { placement in
-            Piece(id: placement.id, type: placement.type, x: placement.initialX, y: placement.initialY)
-        }
-
-        // 2. 初始化棋盘网格
-        gameBoard = Array(repeating: Array(repeating: nil, count: level.boardWidth), count: level.boardHeight)
-        for piece in pieces {
-            for r in 0..<piece.height {
-                for c in 0..<piece.width {
-                    let boardY = piece.y + r
-                    let boardX = piece.x + c
-                    if boardY < level.boardHeight && boardX < level.boardWidth {
-                        gameBoard[boardY][boardX] = piece.id
-                    } else {
-                        // 棋子超出边界，这是一个关卡设计错误
-                        print("错误：棋子 \(piece.id) 在初始布局时超出边界。")
-                    }
-                }
-            }
-        }
+        pieces = level.piecePlacements.map { Piece(id: $0.id, type: $0.type, x: $0.initialX, y: $0.initialY) }
+        rebuildGameBoard()
         
         print("游戏开始: \(level.name)")
-        // saveGame() // 可以在开始时就保存，或首次移动后保存
-        // hasSavedGame = true
+        SoundManager.playImpactHaptic(settings: settings) // Haptic for game start
+        // saveGame(settings: settings) // Optionally save at the very start
+        // hasSavedGame = true // Set by saveGame if it runs
     }
-
+    
     // 尝试移动棋子 (由拖动手势结束时调用)
     // dx, dy 是格子单位的位移
-    func attemptMove(pieceId: Int, dx: Int, dy: Int) {
+    func attemptMove(pieceId: Int, dx: Int, dy: Int, settings: SettingsManager) -> Bool {
         guard let level = currentLevel, var pieceToMove = pieces.first(where: { $0.id == pieceId }),
-              (dx != 0 || dy != 0) else { // 如果没有位移，则不执行任何操作
-            return
+              (dx != 0 || dy != 0) else {
+            return false // No actual displacement
         }
-
+        
         let originalX = pieceToMove.x
         let originalY = pieceToMove.y
         let newX = originalX + dx
         let newY = originalY + dy
-
-        // 1. 边界检查
+        
         guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
               newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
             print("移动无效：棋子 \(pieceId) 移出边界。")
-            return
+            // SoundManager.playHapticNotification(type: .error, settings: settings) // Handled in GameView
+            return false
         }
-
-        // 2. 碰撞检查 (与目标位置的其他棋子)
+        
         for r in 0..<pieceToMove.height {
             for c in 0..<pieceToMove.width {
                 let targetBoardY = newY + r
                 let targetBoardX = newX + c
                 if let occupyingPieceId = gameBoard[targetBoardY][targetBoardX], occupyingPieceId != pieceId {
                     print("移动无效：棋子 \(pieceId) 与棋子 \(occupyingPieceId) 在 (\(targetBoardX), \(targetBoardY)) 发生碰撞。")
-                    return // 目标位置已被其他棋子占据
+                    // SoundManager.playHapticNotification(type: .error, settings: settings) // Handled in GameView
+                    return false
                 }
             }
         }
         
-        // --- 如果移动有效 ---
-        // 3. 更新 gameBoard: 清除旧位置，填充新位置
-        for r in 0..<pieceToMove.height {
-            for c in 0..<pieceToMove.width {
-                gameBoard[originalY + r][originalX + c] = nil // 清除旧位置
-            }
-        }
-        for r in 0..<pieceToMove.height {
-            for c in 0..<pieceToMove.width {
-                gameBoard[newY + r][newX + c] = pieceId // 填充新位置
-            }
-        }
-
-        // 4. 更新 pieces 数组中棋子的位置
+        // Update gameBoard
+        for r in 0..<pieceToMove.height { for c in 0..<pieceToMove.width { gameBoard[originalY + r][originalX + c] = nil } }
+        for r in 0..<pieceToMove.height { for c in 0..<pieceToMove.width { gameBoard[newY + r][newX + c] = pieceId } }
+        
         if let index = pieces.firstIndex(where: { $0.id == pieceId }) {
             pieces[index].x = newX
             pieces[index].y = newY
-            pieceToMove = pieces[index] // 更新 pieceToMove 的本地副本
+            pieceToMove = pieces[index]
         }
-
-        // 5. 更新步数 (移动一格算一步，所以总步数是水平和垂直移动格数的总和)
+        
         moves += abs(dx) + abs(dy)
         print("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
+        // SoundManager.playImpactHaptic(settings: settings) // Handled in GameView after successful call
         
-        // 6. 检查胜利条件
-        checkWinCondition(movedPiece: pieceToMove)
+        checkWinCondition(movedPiece: pieceToMove, settings: settings)
         
-        // saveGame() // 每次有效移动后保存游戏
+        // --- P1: Auto-save after successful move ---
+        if isGameActive && !isGameWon {
+            saveGame(settings: settings)
+        }
+        return true
     }
-
+    
     func canMove(pieceId: Int, currentGridX: Int, currentGridY: Int, deltaX: Int, deltaY: Int) -> Bool {
         guard let level = currentLevel, let pieceToMove = pieces.first(where: { $0.id == pieceId }) else {
             return false
         }
         // 如果没有位移，则认为可以“移动”（停在原地）
         if deltaX == 0 && deltaY == 0 { return true }
-
+        
         let newX = currentGridX + deltaX
         let newY = currentGridY + deltaY
-
+        
         guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
               newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
             return false // 超出边界
         }
-
+        
         for r_offset in 0..<pieceToMove.height {
             for c_offset in 0..<pieceToMove.width {
                 let targetBoardY = newY + r_offset
@@ -169,65 +176,115 @@ class GameManager: ObservableObject {
         }
         return true
     }
-
-
-    func checkWinCondition(movedPiece: Piece) {
+    
+    
+    func checkWinCondition(movedPiece: Piece, settings: SettingsManager) {
         guard let level = currentLevel else { return }
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
-            isGameActive = false // 可以选择在胜利时停止游戏活动状态
-            // clearSavedGame() // 胜利后清除存档
+            isGameActive = false // Stop timer and further moves
+            // SoundManager.playHapticNotification(type: .success, settings: settings) // Handled in GameView's .onAppear for win message
+            // SoundManager.playSound(named: "victory_sound", settings: settings) // Handled in GameView
             print("恭喜！关卡 \(level.name) 完成！总步数: \(moves)")
-            // 后续可以触发更复杂的完成逻辑，如显示胜利界面、解锁下一关等
+            clearSavedGame() // Clear save for this completed level
         }
     }
-
-    func continueGame() {
-        if let savedLevelID = UserDefaults.standard.string(forKey: "savedLevelID") {
-             if let levelToContinue = levels.first(where: { $0.id == savedLevelID }) {
-                 // TODO: Load actual saved board configuration from UserDefaults or a file
-                 currentLevel = levelToContinue
-                 moves = UserDefaults.standard.integer(forKey: "savedMoves")
-                 timeElapsed = UserDefaults.standard.double(forKey: "savedTime")
-                 isGameActive = true // This will trigger navigation
-                 print("继续游戏: \(levelToContinue.name)")
-                 return
-             }
+    
+    
+    func continueGame(settings: SettingsManager) {
+        guard let savedLevelID = UserDefaults.standard.string(forKey: savedLevelIDKey),
+              let levelToContinue = levels.first(where: { $0.id == savedLevelID }) else {
+            print("未找到有效存档ID或对应关卡。")
+            clearSavedGame() // Clear any partial/corrupt save
+            hasSavedGame = false
+            return
         }
-        // Fallback if no valid saved game found, clear flag and potentially start a new game
-        print("未找到有效存档，或存档已损坏。")
-        clearSavedGame() // Clear potentially corrupted save data
-        // Optionally, start the first level or do nothing, letting the user choose.
-        // if let firstLevel = levels.first { startGame(level: firstLevel) }
+        
+        self.currentLevel = levelToContinue
+        self.moves = UserDefaults.standard.integer(forKey: savedMovesKey)
+        self.timeElapsed = UserDefaults.standard.double(forKey: savedTimeKey)
+        
+        if let savedPiecesData = UserDefaults.standard.data(forKey: savedPiecesKey) {
+            do {
+                let decoder = JSONDecoder()
+                let decodedPieces = try decoder.decode([Piece].self, from: savedPiecesData)
+                self.pieces = decodedPieces
+                rebuildGameBoard()
+                self.isGameActive = true
+                self.isGameWon = false // Ensure win state is reset
+                print("继续游戏: \(levelToContinue.name), 棋子状态已加载。")
+                SoundManager.playImpactHaptic(settings: settings)
+                // Check win condition in case the saved state was already a win (unlikely for Klotski mid-game)
+                if let targetPiece = pieces.first(where: {$0.id == levelToContinue.targetPieceId}) {
+                    checkWinCondition(movedPiece: targetPiece, settings: settings) // Re-check, might clear save if won
+                }
+            } catch {
+                print("错误：无法解码已保存的棋子状态: \(error)。将清除存档并尝试重新开始关卡。")
+                clearSavedGame()
+                hasSavedGame = false
+                isGameActive = false // Prevent navigation to broken state
+                // Optionally, you could offer to start the level fresh:
+                // startGame(level: levelToContinue, settings: settings)
+            }
+        } else {
+            print("未找到已保存的棋子数据。存档不完整。将清除存档。")
+            clearSavedGame()
+            hasSavedGame = false
+            isGameActive = false
+        }
     }
-
-    func saveGame() {
+    
+    func saveGame(settings: SettingsManager) {
         guard let currentLevel = currentLevel, isGameActive else { return }
-        UserDefaults.standard.set(currentLevel.id, forKey: "savedLevelID")
-        UserDefaults.standard.set(moves, forKey: "savedMoves")
-        UserDefaults.standard.set(timeElapsed, forKey: "savedTime")
-        // TODO: Save current board configuration (e.g., serialize the state of the game board)
-        hasSavedGame = true // Ensure this is set
-        print("游戏已保存: \(currentLevel.name), 步数: \(moves)")
+        UserDefaults.standard.set(currentLevel.id, forKey: savedLevelIDKey)
+        UserDefaults.standard.set(moves, forKey: savedMovesKey)
+        UserDefaults.standard.set(timeElapsed, forKey: savedTimeKey)
+        
+        do {
+            let encoder = JSONEncoder()
+            let encodedPieces = try encoder.encode(pieces)
+            UserDefaults.standard.set(encodedPieces, forKey: savedPiecesKey)
+            hasSavedGame = true // Ensure this is set
+            print("游戏已保存: \(currentLevel.name), 步数: \(moves), 棋子状态已保存。")
+            // SoundManager.playImpactHaptic(settings: settings) // Maybe too frequent if auto-saving
+        } catch {
+            print("错误：无法编码并保存棋子状态: \(error)")
+            // Potentially clear hasSavedGame or parts of the save if critical encoding fails
+            hasSavedGame = false // If pieces can't be saved, the save is incomplete
+        }
     }
     
     func clearSavedGame() {
-        UserDefaults.standard.removeObject(forKey: "savedLevelID")
-        UserDefaults.standard.removeObject(forKey: "savedMoves")
-        UserDefaults.standard.removeObject(forKey: "savedTime")
-        // TODO: Clear saved board configuration
+        UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
+        UserDefaults.standard.removeObject(forKey: savedMovesKey)
+        UserDefaults.standard.removeObject(forKey: savedTimeKey)
+        UserDefaults.standard.removeObject(forKey: savedPiecesKey) // Clear saved pieces
         hasSavedGame = false
-        print("已清除已保存的游戏")
+        print("已清除已保存的游戏及棋子状态")
     }
-
-    func completeLevel(moves: Int, time: TimeInterval) {
+    
+    func rebuildGameBoard() {
+        guard let level = currentLevel else { return }
+        gameBoard = Array(repeating: Array(repeating: nil, count: level.boardWidth), count: level.boardHeight)
+        for piece in pieces {
+            for r in 0..<piece.height {
+                for c in 0..<piece.width {
+                    let boardY = piece.y + r
+                    let boardX = piece.x + c
+                    if boardY < level.boardHeight && boardX < level.boardWidth {
+                        gameBoard[boardY][boardX] = piece.id
+                    }
+                }
+            }
+        }
+    }
+    
+    func completeLevel(moves: Int, time: TimeInterval, settings: SettingsManager) { // Pass settings
         print("关卡 \(currentLevel?.name ?? "N/A") 完成！步数: \(moves), 时间: \(String(format: "%.2f", time))s")
-        // TODO: Update level stats (bestMoves, bestTime) in the `levels` array and persist them.
-        // TODO: Submit to Game Center leaderboard.
-        
-        // Clear the saved game for this completed level
+        // TODO P2: Update level stats (bestMoves, bestTime) in the `levels` array and persist them.
+        // TODO P2: Submit to Game Center leaderboard.
         clearSavedGame()
-        isGameActive = false // This will allow programmatic dismissal of GameView
+        isGameActive = false
     }
 }
 
@@ -396,6 +453,7 @@ class AuthManager: ObservableObject {
     // }
 }
 
+
 class SettingsManager: ObservableObject {
     // Using @AppStorage for persistence of simple settings
     @AppStorage("selectedLanguage") var language: String = Locale.preferredLanguages.first?.split(separator: "-").first.map(String.init) ?? "en" // Default to system's preferred language or English
@@ -407,7 +465,7 @@ class SettingsManager: ObservableObject {
     // Basic localization dictionary. For a real app, use .strings files and Bundle.main.localizedString.
     private let translations: [String: [String: String]] = [
         "en": [
-            "gameTitle": "Klotski Challenge",
+            "gameTitle": "Klotski",
             "startGame": "Start Game",
             "continueGame": "Continue Game",
             "selectLevel": "Select Level",
@@ -441,9 +499,14 @@ class SettingsManager: ObservableObject {
             "resetProgress": "Reset Progress",
             "areYouSureReset": "Are you sure you want to reset all game progress? This cannot be undone.",
             "reset": "Reset",
+            "pause": "Pause", 
+            "resume": "Resume",
+            "backToMenu": "Back to Menu",
+            "victoryTitle": "Congratulations!",
+            "victoryMessage": "Level Cleared!"
         ],
         "zh": [
-            "gameTitle": "华容道挑战",
+            "gameTitle": "华容道",
             "startGame": "开始游戏",
             "continueGame": "继续游戏",
             "selectLevel": "选择关卡",
@@ -477,10 +540,56 @@ class SettingsManager: ObservableObject {
             "resetProgress": "重置进度",
             "areYouSureReset": "您确定要重置所有游戏进度吗？此操作无法撤销。",
             "reset": "重置",
+            "pause": "暂停",
+            "resume": "继续",
+            "backToMenu": "返回主菜单",
+            "victoryTitle": "恭喜获胜!",
+            "victoryMessage": "成功过关!",
         ]
     ]
 
     func localizedString(forKey key: String) -> String {
         return translations[language]?[key] ?? translations["en"]?[key] ?? key
+    }
+}
+
+// Simple manager to handle sounds and haptics, respecting user settings.
+struct SoundManager {
+    // Using static methods for simplicity in P1.
+    // For more complex audio, a dedicated class/ObservableObject might be better.
+    private static var audioPlayer: AVAudioPlayer?
+    private static let hapticNotificationGenerator = UINotificationFeedbackGenerator()
+    private static let hapticImpactGenerator = UIImpactFeedbackGenerator(style: .medium)
+
+    // Placeholder for playing sounds. Actual implementation would load and play sound files.
+    static func playSound(named soundName: String, type: String = "mp3", settings: SettingsManager) {
+        guard settings.soundEffectsEnabled else { return }
+        // In a real app, you would use AVAudioPlayer here:
+        // guard let path = Bundle.main.path(forResource: soundName, ofType: type) else {
+        //     print("Sound file not found: \(soundName).\(type)")
+        //     return
+        // }
+        // do {
+        //     audioPlayer = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: path))
+        //     audioPlayer?.play()
+        //     print("SoundManager: Playing sound \(soundName)")
+        // } catch {
+        //     print("SoundManager: Could not load/play sound file: \(error)")
+        // }
+        print("SoundManager: Playing sound '\(soundName)' (if enabled and sound file exists)")
+    }
+
+    static func playHapticNotification(type: UINotificationFeedbackGenerator.FeedbackType, settings: SettingsManager) {
+        guard settings.hapticsEnabled else { return }
+        hapticNotificationGenerator.prepare()
+        hapticNotificationGenerator.notificationOccurred(type)
+        print("SoundManager: Playing haptic notification \(type) (if enabled)")
+    }
+
+    static func playImpactHaptic(settings: SettingsManager) {
+        guard settings.hapticsEnabled else { return }
+        hapticImpactGenerator.prepare()
+        hapticImpactGenerator.impactOccurred()
+        print("SoundManager: Playing impact haptic (if enabled)")
     }
 }

@@ -29,31 +29,34 @@ struct MainMenuView: View {
                 NavigationLink(destination: LevelSelectionView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "startGame"))
                 }
+                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
-                // "Continue Game" button and programmatic navigation
                 if gameManager.hasSavedGame {
                     Button(action: {
-                        gameManager.continueGame() // This sets gameManager.isGameActive to true
-                    }) {
-                        MenuButton(title: settingsManager.localizedString(forKey: "continueGame"))
-                    }
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        gameManager.continueGame(settings: settingsManager) // Pass settingsManager
+                    }) { MenuButton(title: settingsManager.localizedString(forKey: "continueGame")) }
                 }
                 
                 NavigationLink(destination: LevelSelectionView()) {
                      MenuButton(title: settingsManager.localizedString(forKey: "selectLevel"))
                 }
+                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
                 NavigationLink(destination: ThemeSelectionView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "themes"))
                 }
+                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
                 NavigationLink(destination: LeaderboardView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "leaderboard"))
                 }
+                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
                 NavigationLink(destination: SettingsView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "settings"))
                 }
+                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
                 
                 Spacer()
                 
@@ -63,8 +66,8 @@ struct MainMenuView: View {
             }
            .frame(maxWidth:.infinity, maxHeight:.infinity)
            .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
-           .sheet(isPresented: $showingLoginSheet) { LoginView().environmentObject(authManager).environmentObject(settingsManager).environmentObject(themeManager) }
-           .sheet(isPresented: $showingRegisterSheet) { RegisterView().environmentObject(authManager).environmentObject(settingsManager).environmentObject(themeManager) }
+           .sheet(isPresented: $showingLoginSheet) { LoginView() }
+           .sheet(isPresented: $showingRegisterSheet) { RegisterView() }
            // Modifier for programmatic navigation to GameView
            .navigationDestination(isPresented: $gameManager.isGameActive) {
                GameView() // Destination view
@@ -103,21 +106,47 @@ struct MainMenuView: View {
     }
 }
 
-// MARK: 单个菜单按钮视图
-struct MenuButton: View {
+// MARK: 菜单按钮
+// Reusable MenuButton Style for consistency (used in VictoryOverlay too)
+struct MenuButtonStyle: ButtonStyle {
+    @ObservedObject var themeManager: ThemeManager // Use ObservedObject if passed directly
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
+            .fontWeight(.medium)
+            .padding()
+            .frame(maxWidth: 280, minHeight: 50)
+            .background(themeManager.currentTheme.sliderColor.color.opacity(configuration.isPressed ? 0.7 : 0.9))
+            .foregroundColor(themeManager.currentTheme.backgroundColor.color)
+            .cornerRadius(12)
+            .shadow(color: themeManager.currentTheme.sliderColor.color.opacity(0.3), radius: configuration.isPressed ? 3 : 5, x: 0, y: configuration.isPressed ? 1 : 2)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+struct MenuButton: View { // MenuButton now uses the reusable style
     let title: String
-    @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var themeManager: ThemeManager // Keep this for easy use in MainMenu
 
     var body: some View {
-        Text(title)
-           .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-           .fontWeight(.medium)
-           .padding()
-           .frame(maxWidth: 280, minHeight: 50) // Ensure buttons have a good tap target size
-           .background(themeManager.currentTheme.sliderColor.color.opacity(0.9))
-           .foregroundColor(themeManager.currentTheme.backgroundColor.color) // Text color contrasts with button
-           .cornerRadius(12) // Softer corners
-           .shadow(color: themeManager.currentTheme.sliderColor.color.opacity(0.3), radius: 5, x: 0, y: 2)
+        Text(title) // The style is applied by the ButtonStyle
+           .modifier(MenuButtonViewModifier(themeManager: themeManager)) // Apply common styling here
+    }
+}
+// Modifier for MenuButton content if not using ButtonStyle directly on Text
+struct MenuButtonViewModifier: ViewModifier {
+    @ObservedObject var themeManager: ThemeManager
+    func body(content: Content) -> some View {
+        content
+            .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
+            .fontWeight(.medium)
+            .padding()
+            .frame(maxWidth: 280, minHeight: 50)
+            .background(themeManager.currentTheme.sliderColor.color.opacity(0.9))
+            .foregroundColor(themeManager.currentTheme.backgroundColor.color)
+            .cornerRadius(12)
+            .shadow(color: themeManager.currentTheme.sliderColor.color.opacity(0.3), radius: 5, x: 0, y: 2)
     }
 }
 
@@ -133,7 +162,8 @@ struct LevelSelectionView: View {
                 // NavigationLink now uses .navigationDestination in MainMenuView for GameView
                 // So, when a level is selected, we just need to set it in GameManager and activate the game.
                 Button(action: {
-                    gameManager.startGame(level: level) // This sets isGameActive to true
+                    SoundManager.playImpactHaptic(settings: settingsManager)
+                    gameManager.startGame(level: level, settings: settingsManager) // Pass settingsManager
                 }) {
                     HStack {
                         VStack(alignment: .leading) {
@@ -223,6 +253,7 @@ struct ThemeSelectionView: View {
             Section {
                  Button(settingsManager.localizedString(forKey: "restorePurchases")) {
                     themeManager.restorePurchases() // Simulated
+                    SoundManager.playImpactHaptic(settings: settingsManager)
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color)
                .foregroundColor(themeManager.currentTheme.sliderColor.color)
@@ -321,7 +352,7 @@ struct SettingsView: View {
                 Picker(settingsManager.localizedString(forKey: "language"), selection: $settingsManager.language) {
                     Text(settingsManager.localizedString(forKey: "chinese")).tag("zh")
                     Text(settingsManager.localizedString(forKey: "english")).tag("en")
-                }
+                }.onChange(of: settingsManager.language) { _, _ in SoundManager.playImpactHaptic(settings: settingsManager) }
             }
            .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5)) // Slightly different for Form
            .foregroundColor(themeManager.currentTheme.sliderColor.color)
@@ -331,8 +362,11 @@ struct SettingsView: View {
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
                 .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
                 Toggle(settingsManager.localizedString(forKey: "soundEffects"), isOn: $settingsManager.soundEffectsEnabled)
+                        .onChange(of: settingsManager.soundEffectsEnabled) { _, _ in SoundManager.playImpactHaptic(settings: settingsManager) }
                 Toggle(settingsManager.localizedString(forKey: "music"), isOn: $settingsManager.musicEnabled)
+                        .onChange(of: settingsManager.musicEnabled) { _, _ in SoundManager.playImpactHaptic(settings: settingsManager) }
                 Toggle(settingsManager.localizedString(forKey: "haptics"), isOn: $settingsManager.hapticsEnabled)
+                        .onChange(of: settingsManager.hapticsEnabled) { _, newValue in if newValue { SoundManager.playImpactHaptic(settings: settingsManager) } }
             }
            .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
            .foregroundColor(themeManager.currentTheme.sliderColor.color)
@@ -343,6 +377,7 @@ struct SettingsView: View {
                 .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
                 Button(settingsManager.localizedString(forKey: "resetProgress"), role: .destructive) {
                     showingResetAlert = true
+                    SoundManager.playHapticNotification(type: .warning, settings: settingsManager)
                 }
                .foregroundColor(.red) // Standard destructive color
             }
@@ -362,10 +397,10 @@ struct SettingsView: View {
                 gameManager.clearSavedGame()
                 // TODO: Potentially reset other game-specific stats if any
                 print("游戏进度已重置")
+                SoundManager.playHapticNotification(type: .success, settings: settingsManager)
             }
             Button(settingsManager.localizedString(forKey: "cancel"), role: .cancel) {}
-        } message: {
-            Text(settingsManager.localizedString(forKey: "areYouSureReset"))
+        } message: {Text(settingsManager.localizedString(forKey: "areYouSureReset"))
         }
     }
 }
