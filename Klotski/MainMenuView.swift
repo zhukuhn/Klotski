@@ -32,10 +32,18 @@ struct MainMenuView: View {
 
                 Spacer()
 
-                NavigationLink(destination: LevelSelectionView()) {
+                Button(action: {
+                    SoundManager.playImpactHaptic(settings: settingsManager)
+                    if let firstLevel = gameManager.levels.first {
+                        // 开始新游戏时，总是清除之前的“继续游戏”存档
+                        gameManager.clearSavedGame() // 确保没有旧的存档干扰
+                        gameManager.startGame(level: firstLevel, settings: settingsManager, isNewSession: true)
+                    } else {
+                        print("错误：关卡列表为空，无法开始游戏！")
+                    }
+                }) {
                     MenuButton(title: settingsManager.localizedString(forKey: "startGame"))
                 }
-                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
                 if gameManager.hasSavedGame {
                     Button(action: {
@@ -65,9 +73,7 @@ struct MainMenuView: View {
                 .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
                 
                 Spacer()
-                
-                authStatusView()
-                   .padding(.bottom)
+                authStatusView().padding(.bottom)
 
             }
            .frame(maxWidth:.infinity, maxHeight:.infinity)
@@ -75,13 +81,9 @@ struct MainMenuView: View {
            .sheet(isPresented: $showingLoginSheet) { LoginView() }
            .sheet(isPresented: $showingRegisterSheet) { RegisterView() }
            // Modifier for programmatic navigation to GameView
-           .navigationDestination(isPresented: $gameManager.isGameActive) {
-               GameView() // Destination view
-           }
+           .navigationDestination(isPresented: $gameManager.isGameActive) {GameView()}
             // MARK: DEBUG: 视图出现时打印状态
-           .onAppear {
-               print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)") 
-           }
+           .onAppear {print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)")}
         }
     }
     
@@ -166,36 +168,33 @@ struct LevelSelectionView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var settingsManager: SettingsManager
 
+    var isPresentedAsPanel: Bool = false // 标记是否作为面板显示
+    var dismissPanelAction: (() -> Void)? = nil // 关闭面板的回调
+
     var body: some View {
+        // 根据是否作为面板显示，决定是否包裹 NavigationView
+        Group {
+            if isPresentedAsPanel {
+                NavigationView { levelListContent }
+                .navigationViewStyle(.stack) // 确保在面板模式下有正确的导航栏行为
+            } else {
+                levelListContent // 直接显示列表内容（例如从主菜单通过 NavigationLink 进入时）
+            }
+        }
+    }
+
+    var levelListContent: some View {
         List {
             ForEach(gameManager.levels.filter { $0.isUnlocked }) { level in
-                // NavigationLink now uses .navigationDestination in MainMenuView for GameView
-                // So, when a level is selected, we just need to set it in GameManager and activate the game.
                 Button(action: {
                     SoundManager.playImpactHaptic(settings: settingsManager)
-                    gameManager.startGame(level: level, settings: settingsManager) // Pass settingsManager
+                    gameManager.clearSavedGame() // 开始新选择的关卡前清除旧存档
+                    gameManager.startGame(level: level, settings: settingsManager, isNewSession: true)
+                    dismissPanelAction?() // 如果是面板，则关闭面板
                 }) {
                     HStack {
-                        VStack(alignment: .leading) {
-                            Text(level.name)
-                               .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-                               .foregroundColor(themeManager.currentTheme.sliderColor.color)
-                            if let moves = level.bestMoves {
-                                Text("最佳: \(moves) \(settingsManager.localizedString(forKey: "moves"))")
-                                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption)
-                                   .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
-                            } else {
-                                Text("未完成")
-                                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption)
-                                   .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5))
-                            }
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right") // Visual cue for navigation
-                           .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5))
-                        // TODO: Add preview of level layout or difficulty icon
-                    }
-                   .padding(.vertical, 8)
+                        VStack(alignment: .leading) { Text(level.name).font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline).foregroundColor(themeManager.currentTheme.sliderColor.color); if let moves = level.bestMoves { Text("最佳: \(moves) \(settingsManager.localizedString(forKey: "moves"))").font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption).foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7)) } else { Text("未完成").font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption).foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5)) } }; Spacer(); Image(systemName: "chevron.right").foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5))
+                    }.padding(.vertical, 8)
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color)
             }
@@ -206,8 +205,20 @@ struct LevelSelectionView: View {
             }
         }
        .navigationTitle(settingsManager.localizedString(forKey: "selectLevel"))
+       .navigationBarTitleDisplayMode(isPresentedAsPanel ? .inline : .automatic) // 面板模式下使用 inline
+       .toolbar {
+           if isPresentedAsPanel { // 仅在面板模式下显示关闭按钮
+               ToolbarItem(placement: .navigationBarTrailing) { // 或者 .navigationBarLeading
+                   Button(settingsManager.localizedString(forKey: "cancel")) {
+                       SoundManager.playImpactHaptic(settings: settingsManager)
+                       dismissPanelAction?()
+                   }
+                   .tint(themeManager.currentTheme.sliderColor.color)
+               }
+           }
+       }
        .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
-       .scrollContentBackground(.hidden) // For iOS 16+ to make List background transparent
+       .scrollContentBackground(.hidden)
     }
 }
 

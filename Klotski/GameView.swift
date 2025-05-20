@@ -19,101 +19,149 @@ struct GameView: View {
     @State private var pieceInitialGridPos_onDragStart: CGPoint? = nil
     @State private var fingerStartScreenPos_onDragStart: CGPoint? = nil
     @State private var currentValidCumulativeGridOffset: CGSize = .zero
+    @State private var dragSnapThresholdFactor: CGFloat = 0.2 // 拖动阈值
 
-    // --- 新增：可调拖动吸附阈值 ---
-    // 代表需要拖动超过格子尺寸的多少比例才吸附到下一个格子。
-    // 0.5 表示标准的四舍五入 (拖动半格)。
-    // 较小的值 (如 0.3) 表示更灵敏，拖动较少距离就吸附。
-    // 较大的值 (如 0.7) 表示需要拖动更多距离才吸附。
-    @State private var dragSnapThresholdFactor: CGFloat = 0.2 // 您可以更改此值进行测试
-
-    // --- 计时器等其他状态 ---
-    @State private var timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    @State private var internalTimeElapsed: TimeInterval = 0
+    @State private var showLevelSelectionPanel = false
     
     private let boardPadding: CGFloat = 10
+    private let controlButtonSize: CGFloat = 44
+    private let panelWidthRatio: CGFloat = 0.85 // 面板宽度占屏幕宽度的比例，可以调整
+    private let panelCornerRadius: CGFloat = 20 // 面板圆角
 
     private func calculateCellSize(geometry: GeometryProxy, boardWidthCells: Int, boardHeightCells: Int) -> CGFloat {
         guard boardWidthCells > 0, boardHeightCells > 0 else { return 1 }
         let availableWidth = geometry.size.width - (boardPadding * 2)
-        // Allocate more height for game board, e.g., 70% of available height if info view is present
-        let availableHeight = (geometry.size.height * (gameManager.isGameWon ? 0.8 : 0.7)) - (boardPadding * 2) // Adjust based on win state
+        let controlAreaHeight = controlButtonSize + 15 + 60 // 大约是两行按钮的高度和间距
+        let availableHeight = (geometry.size.height * 0.9) - (boardPadding * 2) - controlAreaHeight
         guard availableWidth > 0, availableHeight > 0 else { return 1 }
         return max(1, min(availableWidth / CGFloat(boardWidthCells), availableHeight / CGFloat(boardHeightCells), 80)) // Max cell size 80
     }
 
-    // 自定义取整函数，基于阈值
+    // 自定义带阈值的取整函数
     private func customRoundWithThreshold(_ value: CGFloat, threshold: CGFloat) -> Int {
-        let absoluteValue = abs(value)
-        let sign = value >= 0 ? 1 : -1
-        
-        // 检查是否超过了整数部分加上阈值
-        if absoluteValue.truncatingRemainder(dividingBy: 1.0) >= threshold {
-            return Int(ceil(absoluteValue)) * sign
-        } else {
-            return Int(floor(absoluteValue)) * sign
-        }
+        let av = abs(value); let sign = value >= 0 ? 1 : -1
+        return av.truncatingRemainder(dividingBy: 1.0) >= threshold ? Int(ceil(av)) * sign : Int(floor(av)) * sign
     }
 
     var body: some View {
         GeometryReader { geometry in
-            VStack {
-                if let level = gameManager.currentLevel {
-                    let cellSize = calculateCellSize(geometry: geometry, boardWidthCells: level.boardWidth, boardHeightCells: level.boardHeight)
-                    
-                    if cellSize <= 1 {
-                        Text("错误：棋盘尺寸计算异常。").foregroundColor(.red).frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        
-                        gameInfoView.padding(.horizontal, 40).padding(.top, 40)
-                        ZStack {
-                            BoardBackgroundView(widthCells: level.boardWidth, heightCells: level.boardHeight, cellSize: cellSize, theme: themeManager.currentTheme)
-                                .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
+            ZStack { // 主 ZStack，用于容纳游戏内容和各种浮层/面板
+                // 游戏核心内容区域
+                gameAreaView(geometry: geometry)
+                    //.blur(radius: showLevelSelectionPanel || (gameManager.isPaused && !gameManager.isGameWon) ? 5 : 0) // 面板或暂停时模糊背景
+                    //.allowsHitTesting(!(showLevelSelectionPanel || (gameManager.isPaused && !gameManager.isGameWon))) // 面板或暂停时禁用背景交互
 
-                            ForEach(gameManager.pieces) { piece in
-                                PieceView(piece: piece, cellSize: cellSize, theme: themeManager.currentTheme, isDragging: piece.id == draggingPieceID)
-                                    .position(
-                                        x: CGFloat(piece.x) * cellSize + (CGFloat(piece.width) * cellSize / 2),
-                                        y: CGFloat(piece.y) * cellSize + (CGFloat(piece.height) * cellSize / 2)
-                                    )
-                                    .offset( // This offset is for visual drag effect only
-                                        x: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.width * cellSize : 0,
-                                        y: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.height * cellSize : 0
-                                    )
-                                    .gesture(pieceDragGesture(piece: piece, cellSize: cellSize))
-                            }
-                            
-                            //显示完成视图
-                            if gameManager.isGameWon {
-                                victoryOverlay
-                            }
-                        }
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameManager.pieces) // Animates piece movements
-                        .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
-                        .padding(.vertical)
-                        
-                        Spacer()
-                    }
-                } else {
-                    Text("未选择关卡。").foregroundColor(themeManager.currentTheme.sliderColor.color).padding()
+                // 从右侧滑出的关卡选择面板 (在暂停浮层之上)
+                if showLevelSelectionPanel {
+                    levelSelectionSidePanel(geometry: geometry)
+                        //.zIndex(4) // 比暂停浮层高，比胜利浮层低（如果胜利也需要显示）
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(gameManager.currentLevel?.name ?? settingsManager.localizedString(forKey: "gameTitle"))
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(gameManager.isGameActive && !gameManager.isGameWon)
-            .toolbar { navigationToolbarItems }
+            .navigationBarBackButtonHidden(true) // 始终隐藏系统返回按钮
+            .toolbar { navigationToolbarItems } // 自定义工具栏
             .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
             .onAppear(perform: setupGameView)
             .onDisappear(perform: cleanupGameView)
-            .onReceive(timer) { _ in if gameManager.isGameActive && !gameManager.isGameWon { internalTimeElapsed += 1 } }
+        }
+    }
+
+    @ViewBuilder
+    private func gameAreaView(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            if let level = gameManager.currentLevel {
+                let cellSize = calculateCellSize(geometry: geometry, boardWidthCells: level.boardWidth, boardHeightCells: level.boardHeight)
+                if cellSize <= 1 {
+                    Text("错误：棋盘尺寸计算异常。").foregroundColor(.red).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    gameInfoView.padding(.horizontal, 20).padding(.top, 15).padding(.bottom, 5)
+                    bestRecordsView.padding(.bottom, 10)
+                    
+                    // 棋盘和棋子
+                    ZStack {
+                        BoardBackgroundView(widthCells: level.boardWidth, heightCells: level.boardHeight, cellSize: cellSize, theme: themeManager.currentTheme)
+                            .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
+                        ForEach(gameManager.pieces) { piece in
+                            PieceView(piece: piece, cellSize: cellSize, theme: themeManager.currentTheme, isDragging: piece.id == draggingPieceID)
+                                .position(x: CGFloat(piece.x) * cellSize + (CGFloat(piece.width) * cellSize / 2), y: CGFloat(piece.y) * cellSize + (CGFloat(piece.height) * cellSize / 2))
+                                .offset(x: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.width * cellSize : 0, y: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.height * cellSize : 0)
+                                .gesture(pieceDragGesture(piece: piece, cellSize: cellSize))
+                        }
+
+                        // 暂停浮层 (在选择关卡面板之下，游戏内容之上)
+                        if gameManager.isPaused && !gameManager.isGameWon {
+                            pauseOverlay
+                        }
+
+                        // 胜利浮层 (最高优先级)
+                        if gameManager.isGameWon {
+                            victoryOverlay
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color.black.opacity(0.7).ignoresSafeArea())
+                        }
+
+                    }
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameManager.pieces)
+                    .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
+                    
+                    gameControlsView.padding(.top, 20)
+                    gameMainControlsView.padding(.top, 20)
+                    Spacer()
+                }
+            } else {
+                Text("未选择关卡。").foregroundColor(themeManager.currentTheme.sliderColor.color).padding()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func levelSelectionSidePanel(geometry: GeometryProxy) -> some View {
+        // ZStack 用于组合遮罩和面板本身
+        ZStack {
+            // 半透明遮罩层
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture { // 点击遮罩关闭面板
+                    withAnimation(.spring()) {
+                        showLevelSelectionPanel = false
+                        // 游戏应保持打开面板前的暂停状态，由用户通过游戏内按钮恢复
+                    }
+                }
+                .transition(.opacity) // 遮罩的淡入淡出
+
+            // 关卡选择面板视图
+            LevelSelectionView(
+                isPresentedAsPanel: true,
+                dismissPanelAction: {
+                    withAnimation(.spring()) {
+                        showLevelSelectionPanel = false
+                        // 如果从面板选择了新关卡，GameManager.startGame 会处理 isPaused 状态
+                        // 如果只是关闭面板，游戏应保持之前的暂停状态
+                        if gameManager.isGameActive && !gameManager.isGameWon && gameManager.isPaused {
+                             // 可选：如果希望关闭面板后自动继续游戏（如果之前是活跃的）
+                             // gameManager.resumeGame(settings: settingsManager)
+                        }
+                    }
+                }
+            )
+            .frame(width: min(geometry.size.width * panelWidthRatio, 400))
+            .background(
+                themeManager.currentTheme.backgroundColor.color // 使用主题背景色
+                    .overlay(.thinMaterial) // 添加一层薄材质效果，增加区分度
+            )
+            .cornerRadius(panelCornerRadius, corners: [.topLeft, .bottomLeft])
+            .shadow(color: .black.opacity(0.3), radius: 15, x: -5, y: 0)
+            .offset(x: geometry.size.width / 2 - (min(geometry.size.width * panelWidthRatio, 400) / 2) ) // 使面板从右侧滑入并靠右对齐
+            .transition(.move(edge: .trailing)) // 从右侧滑入/滑出动画
         }
     }
 
     func pieceDragGesture(piece: Piece, cellSize: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 5, coordinateSpace: .global)
             .onChanged { value in
-                guard cellSize > 0, !gameManager.isGameWon else { return }
+                guard cellSize > 0, !gameManager.isGameWon, !gameManager.isPaused else { return }
 
                 if draggingPieceID == nil { // Start of a new drag
                     draggingPieceID = piece.id
@@ -181,6 +229,7 @@ struct GameView: View {
             }
     }
 
+    // 完成浮层
     @ViewBuilder
     private var victoryOverlay: some View {
         VStack(spacing: 20) { // 增加间距
@@ -212,61 +261,207 @@ struct GameView: View {
         .shadow(color: .black.opacity(0.3), radius: 10, x:0, y:5) // 调整阴影
         .transition(.asymmetric(insertion: .scale.combined(with: .opacity), removal: .opacity))
     }
-    
+
+    // 暂停浮层
+    @ViewBuilder 
+    private var pauseOverlay: some View {
+        VStack(spacing: 25) { 
+            Text(settingsManager.localizedString(forKey: "pause"))
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                gameManager.resumeGame(settings: settingsManager) 
+            }) { 
+                Label(
+                    settingsManager.localizedString(forKey: "resume"), systemImage: "play.fill"
+                )
+                .font(.headline)
+                .padding(.horizontal, 30)
+                .padding(.vertical, 15) 
+            }
+            .buttonStyle(MenuButtonStyle(themeManager: themeManager))
+            
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                gameManager.pauseGame()
+                gameManager.saveGame(settings: settingsManager)
+                gameManager.isGameActive = false
+                dismiss() 
+            }) { 
+                Label(
+                    settingsManager.localizedString(forKey: "backToMenu"), systemImage: "house.fill"
+                )
+                .font(.headline)
+                .padding(.horizontal, 30)
+                .padding(.vertical, 15) 
+            }
+            .buttonStyle(MenuButtonStyle(themeManager: themeManager))
+
+        }
+        .padding(EdgeInsets(top: 50, leading: 40, bottom: 50, trailing: 40))
+        .background(themeManager.currentTheme.backgroundColor.color.opacity(0.95).blur(radius: 5))
+        .cornerRadius(20)
+        .shadow(color: .black.opacity(0.4), radius: 15, x:0, y:8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.6).ignoresSafeArea())
+        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+    }
+
+    // 游戏信息 (当前时间、步数)
     private var gameInfoView: some View {
-        HStack {
-            //Text("\(settingsManager.localizedString(forKey: "level")): \(gameManager.currentLevel?.name ?? "N/A")")
-            //Spacer()
-            Text("\(settingsManager.localizedString(forKey: "time")): \(formattedTime(internalTimeElapsed))")
+        HStack { 
+            Text("\(settingsManager.localizedString(forKey: "time")): \(gameManager.formattedTime(gameManager.timeElapsed))")
             Spacer()
-            Text("\(settingsManager.localizedString(forKey: "moves")): \(gameManager.moves)").frame(width:80, alignment: .leading)
+            Text("\(settingsManager.localizedString(forKey: "moves")): \(gameManager.moves)").frame(minWidth:100, alignment: .leading) 
         }
         .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 16) : .callout)
         .foregroundColor(themeManager.currentTheme.sliderColor.color)
     }
+
+    // 显示最佳记录的视图
+    private var bestRecordsView: some View {
+        HStack {
+            Text("\(settingsManager.localizedString(forKey: "bestTime")): \(gameManager.formattedTime(gameManager.currentLevel?.bestTime))")
+            Spacer()
+            Text("\(settingsManager.localizedString(forKey: "bestMoves")): \(gameManager.currentLevel?.bestMoves != nil ? "\(gameManager.currentLevel!.bestMoves!)" : "--")")
+                .frame(minWidth:100, alignment: .leading)
+        }
+        .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
+        .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))
+        .padding(.horizontal, 20)
+    }
+
+    // 游戏控制按钮视图 (上一关, 开始/暂停, 下一关)
+    private var gameControlsView: some View { // 控制按钮调用 gameManager 的方法
+        HStack(spacing: 30) {
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                if let currentIndex = gameManager.currentLevelIndex, currentIndex > 0 {
+                    gameManager.switchToLevel(at: currentIndex - 1, settings: settingsManager) 
+                }
+            }){ 
+                Image(systemName: "backward.circle.fill").resizable().scaledToFit() 
+            }
+            .frame(width: controlButtonSize, height: controlButtonSize)
+            .foregroundColor(themeManager.currentTheme.sliderColor.color)
+            .disabled(gameManager.currentLevelIndex == nil || gameManager.currentLevelIndex == 0 || gameManager.isPaused || gameManager.isGameWon)
+            
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                if gameManager.isPaused { 
+                    gameManager.resumeGame(settings: settingsManager) 
+                } else { 
+                    gameManager.pauseGame() 
+                } 
+            }) { 
+                Image(systemName: gameManager.isPaused ? "play.circle.fill" : "pause.circle.fill").resizable().scaledToFit() 
+            }
+            .frame(width: controlButtonSize + 10, height: controlButtonSize + 10)
+            .foregroundColor(themeManager.currentTheme.sliderColor.color).disabled(gameManager.isGameWon)
+
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                if let currentIndex = gameManager.currentLevelIndex, currentIndex < gameManager.levels.count - 1 {
+                    gameManager.switchToLevel(at: currentIndex + 1, settings: settingsManager) 
+                } 
+            }) { 
+                Image(systemName: "forward.circle.fill").resizable().scaledToFit() 
+            }
+            .frame(width: controlButtonSize, height: controlButtonSize)
+            .foregroundColor(themeManager.currentTheme.sliderColor.color)
+            .disabled(gameManager.currentLevelIndex == nil || gameManager.currentLevelIndex == gameManager.levels.count - 1 || gameManager.isPaused || gameManager.isGameWon)
+        }.padding(.bottom, 10)
+    }
+    // 菜单，重来，关卡
+    private var gameMainControlsView: some View { 
+        HStack(spacing: 30) {
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                gameManager.pauseGame()
+                gameManager.saveGame(settings: settingsManager)
+                gameManager.isGameActive = false
+                dismiss() 
+            }) { 
+                Image(systemName: "house.circle.fill").resizable().scaledToFit()
+            }
+            .frame(width: controlButtonSize, height: controlButtonSize)
+            .foregroundColor(themeManager.currentTheme.sliderColor.color)
+            
+            Button(action: { 
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                if let currentIndex = gameManager.currentLevelIndex{
+                    gameManager.switchToLevel(at: currentIndex, settings: settingsManager)
+                }
+            }) { 
+                Image(systemName: "arrow.clockwise.circle.fill").resizable().scaledToFit()
+            }
+            .frame(width: controlButtonSize+10, height: controlButtonSize+10)
+            .foregroundColor(themeManager.currentTheme.sliderColor.color)
+
+            // 游戏内选择关卡按钮
+            Button(action: {
+                SoundManager.playImpactHaptic(settings: settingsManager)
+                if !gameManager.isPaused { // 如果游戏当前未暂停，则暂停它
+                    gameManager.pauseGame()
+                }
+                gameManager.saveGame(settings: settingsManager) // 打开面板前保存一下，确保状态最新
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { // 使用更平滑的动画
+                    showLevelSelectionPanel = true
+                }
+            }) {
+                Image(systemName: "list.bullet.circle.fill").resizable().scaledToFit()
+            }
+            .frame(width: controlButtonSize+10, height: controlButtonSize+10)
+            .foregroundColor(themeManager.currentTheme.sliderColor.color)
     
-    @ToolbarContentBuilder
+            
+        }.padding(.bottom, 10)
+    }
+    
+    @ToolbarContentBuilder 
     private var navigationToolbarItems: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
-            if gameManager.isGameActive && !gameManager.isGameWon { // 仅当活跃且未胜利时显示
-                Button {
-                    gameManager.timeElapsed = internalTimeElapsed // 捕获当前时间
-                    if gameManager.isGameActive && !gameManager.isGameWon { // 再次检查以防万一
-                        print("暂停按钮按下：正在保存游戏...")
-                        gameManager.saveGame(settings: settingsManager) // 暂停时明确保存游戏
-                    }
-                    gameManager.isGameActive = false // 这将通过 NavigationDestination 触发返回
-                    // dismiss() // 不需要显式调用 dismiss，isGameActive=false 会处理
-                } label: {
-                    HStack { Image(systemName: "chevron.backward"); Text(settingsManager.localizedString(forKey: "pause")) }
-                }
-                .tint(themeManager.currentTheme.sliderColor.color)
-            }
+            Button { 
+            SoundManager.playImpactHaptic(settings: settingsManager)
+            gameManager.pauseGame()
+            gameManager.saveGame(settings: settingsManager)
+            dismiss()
+        } label: {
+            Image(systemName: "chevron.backward")
+            .imageScale(.large) }
+            .tint(themeManager.currentTheme.sliderColor.color)
+            
         }
     }
-    private func setupGameView(){ 
-        if gameManager.isGameActive { internalTimeElapsed = gameManager.timeElapsed; startTimer() 
-    } else { print("GameView setup: gameManager is not active.")} }
+    private func setupGameView(){
+        print("GameView onAppear: isGameActive=\(gameManager.isGameActive), isPaused=\(gameManager.isPaused), isGameWon=\(gameManager.isGameWon)")
+        if gameManager.isGameActive && !gameManager.isPaused && !gameManager.isGameWon {
+            gameManager.resumeGame(settings: settingsManager) // 确保计时器启动（如果之前是暂停状态）
+        } else if gameManager.isGameActive && gameManager.isPaused && !gameManager.isGameWon {
+            // 如果游戏是活跃的，但已标记为暂停（例如从后台恢复），则保持暂停状态，等待用户操作
+            print("GameView onAppear: Game is active but paused. Timer remains stopped.")
+        } else {
+            gameManager.stopTimer() // 其他情况（如游戏未激活或已胜利）确保计时器停止
+        }
+    }
 
     private func cleanupGameView(){
-        stopTimer()
-        // 当视图消失时，如果游戏仍然被认为是活跃的（例如，不是通过胜利或暂停按钮正常退出）
-        // 并且未胜利，则保存其状态。
-        // 这主要处理应用进入后台或被系统中断的情况。
+        print("GameView onDisappear: isGameActive=\(gameManager.isGameActive), isPaused=\(gameManager.isPaused), isGameWon=\(gameManager.isGameWon)")
         if gameManager.isGameActive && !gameManager.isGameWon {
-            print("GameView cleanup: Game is still active and not won. Saving time and game state.")
-            gameManager.timeElapsed = internalTimeElapsed
+            // 当视图消失时（例如导航离开，而不是应用进入后台），
+            // 我们应该暂停游戏并保存状态。
+            // 应用进入后台的保存由 KlotskiApp 中的 scenePhase 处理。
+            print("GameView onDisappear: Pausing and saving game.")
+            gameManager.pauseGame() // 这会停止计时器
             gameManager.saveGame(settings: settingsManager)
-        } else if gameManager.isGameWon {
-            print("GameView cleanup: Game was won. State should have been cleared.")
         } else {
-            print("GameView cleanup: Game was not active (likely paused or dismissed normally). No save action here.")
+            // 如果游戏已胜利或已不活跃，则不需要额外操作，计时器应已停止。
+            gameManager.stopTimer() // 确保计时器停止
         }
     }
 
-    private func startTimer(){stopTimer();timer=Timer.publish(every:1,on:.main,in:.common).autoconnect()}
-    private func stopTimer(){timer.upstream.connect().cancel()}
-    private func formattedTime(_ tS:TimeInterval)->String{let m=Int(tS)/60;let s=Int(tS)%60;return String(format:"%02d:%02d",m,s)}
+    
 }
 
 // MARK: 棋盘背景和网格线视图

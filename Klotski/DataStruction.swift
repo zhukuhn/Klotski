@@ -7,6 +7,23 @@
 
 import SwiftUI
 
+// 新增：用于给 View 添加特定角圆角的扩展
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape( RoundedCorner(radius: radius, corners: corners) )
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
+        return Path(path.cgPath)
+    }
+}
+
 // 棋子类型定义
 enum PieceType: String, Codable, CaseIterable, Identifiable {
     case caoCao         // 曹操 (2x2)

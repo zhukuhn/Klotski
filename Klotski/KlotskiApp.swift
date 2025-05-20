@@ -23,12 +23,18 @@ struct KlotskiApp: App {
                .environmentObject(authManager)
                .environmentObject(settingsManager)
                .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
-               .onChange(of: scenePhase) { (oldPhase: ScenePhase, newPhase: ScenePhase) in
-                   // Auto-save game when app goes to background or becomes inactive
+               .onChange(of: scenePhase) { oldPhase, newPhase in
                    if newPhase == .background || newPhase == .inactive {
                        if gameManager.isGameActive && !gameManager.isGameWon {
-                           gameManager.saveGame(settings: settingsManager) // Pass settings for sound
-                           print("App entering background/inactive, game saved.")
+                           print("App entering background/inactive. Pausing and saving game.")
+                           gameManager.pauseGame() // 先暂停游戏（会停止计时器）
+                           gameManager.saveGame(settings: settingsManager) // 然后保存
+                       }
+                   } else if newPhase == .active {
+                       if gameManager.isGameActive && !gameManager.isGameWon && gameManager.isPaused { // 之前是暂停状态
+                           // 根据游戏逻辑，可能需要用户手动点击继续，或者自动继续
+                           // 为简单起见，这里不自动继续，用户需点击 GameView 中的继续按钮
+                           print("App became active, game was paused. User needs to resume manually if desired.")
                        }
                    }
                }

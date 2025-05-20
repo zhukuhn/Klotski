@@ -8,9 +8,11 @@
 import SwiftUI
 import AVFoundation // For future sound implementation
 import UIKit // For Haptics
+import Combine
 
 class GameManager: ObservableObject {
     @Published var currentLevel: Level?
+    @Published var currentLevelIndex: Int? 
     @Published var pieces: [Piece] = [] // 当前关卡的棋子实例
     @Published var gameBoard: [[Int?]] = [] // 棋盘网格，存储占据该格子的棋子ID，nil表示空格。Int? 而非 Int 是因为 0 可能是一个有效的棋子ID
     
@@ -22,7 +24,7 @@ class GameManager: ObservableObject {
             PiecePlacement(id: 5, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 6, type: .huangZhongV, initialX: 3, initialY: 2),
             PiecePlacement(id: 7, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 8, type: .soldier, initialX: 2, initialY: 3),
             PiecePlacement(id: 9, type: .soldier, initialX: 0, initialY: 4), PiecePlacement(id: 10, type: .soldier, initialX: 3, initialY: 4)
-        ], targetPieceId: 1, targetX: 1, targetY: 3, isUnlocked: true
+        ], targetPieceId: 1, targetX: 1, targetY: 3, bestMoves: 200, bestTime: 200
     )
     static let easyExitLevel = Level(
         id: "easy_exit", name: "兵临城下", boardWidth: 4, boardHeight: 5,
@@ -31,7 +33,7 @@ class GameManager: ObservableObject {
             PiecePlacement(id: 2, type: .soldier, initialX: 0, initialY: 0), PiecePlacement(id: 3, type: .soldier, initialX: 3, initialY: 0),
             PiecePlacement(id: 4, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 5, type: .soldier, initialX: 2, initialY: 2),
             PiecePlacement(id: 6, type: .guanYuH, initialX: 1, initialY: 3) // Blocks exit initially
-        ], targetPieceId: 1, targetX: 1, targetY: 3, isUnlocked: true
+        ], targetPieceId: 1, targetX: 1, targetY: 3, bestMoves: 100, bestTime: 200
     )
     static let verticalChallengeLevel = Level(
         id: "vertical_challenge", name: "层峦叠嶂", boardWidth: 4, boardHeight: 5,
@@ -41,73 +43,169 @@ class GameManager: ObservableObject {
             PiecePlacement(id: 4, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 5, type: .huangZhongV, initialX: 3, initialY: 2),
             PiecePlacement(id: 6, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 7, type: .soldier, initialX: 2, initialY: 2),
             PiecePlacement(id: 8, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 9, type: .soldier, initialX: 2, initialY: 3),
-        ], targetPieceId: 1, targetX: 1, targetY: 3, isUnlocked: true
+        ], targetPieceId: 1, targetX: 1, targetY: 3
     )
     
-    @Published var levels: [Level] = [classicLevel] // 更多关卡可以后续添加
+    @Published var levels: [Level] = [classicLevel, easyExitLevel, verticalChallengeLevel] // 更多关卡可以后续添加
     
     @Published var moves: Int = 0
     @Published var timeElapsed: TimeInterval = 0
     @Published var isGameActive: Bool = false
     @Published var hasSavedGame: Bool = false
     @Published var isGameWon: Bool = false
+    @Published var isPaused: Bool = false // 游戏暂停状态
+
+    private var timerSubscription: Cancellable? // 用于管理计时器
     
-    // --- P1: Keys for UserDefaults ---
     private let savedLevelIDKey = "savedKlotskiLevelID"
     private let savedMovesKey = "savedKlotskiMoves"
     private let savedTimeKey = "savedKlotskiTime"
     private let savedPiecesKey = "savedKlotskiPieces"
-    
-    
+    private let savedLevelIndexKey = "savedKlotskiLevelIndex"
+    private let savedIsPausedKey = "savedKlotskiIsPaused" // 保存暂停状态的键
+
     init() {
         let levelID = UserDefaults.standard.string(forKey: savedLevelIDKey)
         let piecesData = UserDefaults.standard.data(forKey: savedPiecesKey)
-        let movesData = UserDefaults.standard.object(forKey: savedMovesKey) // 检查键是否存在
-        let timeData = UserDefaults.standard.object(forKey: savedTimeKey)   // 检查键是否存在
+        let movesDataExists = UserDefaults.standard.object(forKey: savedMovesKey) != nil
+        let timeDataExists = UserDefaults.standard.object(forKey: savedTimeKey) != nil
+        let levelIndexExists = UserDefaults.standard.object(forKey: savedLevelIndexKey) != nil
+        let isPausedDataExists = UserDefaults.standard.object(forKey: savedIsPausedKey) != nil
 
         print("GameManager init: 正在检查已保存的数据...")
         print("  - 关卡 ID: \(levelID ?? "无")")
         print("  - 棋子数据: \(piecesData != nil ? "\(piecesData!.count) 字节" : "无")")
-        print("  - 步数: \(movesData != nil ? String(describing: UserDefaults.standard.integer(forKey: savedMovesKey)) : "无")")
-        print("  - 时间: \(timeData != nil ? String(describing: UserDefaults.standard.double(forKey: savedTimeKey)) : "无")")
+        print("  - 步数: \(movesDataExists ? String(describing: UserDefaults.standard.integer(forKey: savedMovesKey)) : "无")")
+        print("  - 时间: \(timeDataExists ? String(describing: UserDefaults.standard.double(forKey: savedTimeKey)) : "无")")
+        print("  - 关卡索引: \(levelIndexExists ? String(describing: UserDefaults.standard.integer(forKey: savedLevelIndexKey)) : "无")")
 
         // 严格检查：所有存档部分都必须存在才认为存档有效
-        if let id = levelID, piecesData != nil, movesData != nil, timeData != nil {
+        if let id = levelID, piecesData != nil, movesDataExists, timeDataExists, levelIndexExists, isPausedDataExists {
             print("GameManager init: 发现有效的存档，关卡 ID \(id)。设置 hasSavedGame = true")
             hasSavedGame = true
         } else {
             print("GameManager init: 未找到有效的完整存档或存档部分缺失。设置 hasSavedGame = false。")
             hasSavedGame = false
             // 如果任何存档部分存在，说明存档不完整或已损坏，进行清理
-            if levelID != nil || piecesData != nil || movesData != nil || timeData != nil {
+            if levelID != nil || piecesData != nil || movesDataExists || timeDataExists || levelIndexExists || isPausedDataExists {
                 print("GameManager init: 正在清除部分或损坏的存档数据。")
                 UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
                 UserDefaults.standard.removeObject(forKey: savedMovesKey)
                 UserDefaults.standard.removeObject(forKey: savedTimeKey)
                 UserDefaults.standard.removeObject(forKey: savedPiecesKey)
+                UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
+                UserDefaults.standard.removeObject(forKey: savedIsPausedKey)
             }
         }
     }
     
-    func startGame(level: Level, settings: SettingsManager) {
+    // 开始指定关卡
+    func startGame(level: Level, settings: SettingsManager, isNewSession: Bool = true) {
         currentLevel = level
-        moves = 0
-        timeElapsed = 0 // Reset time for new game
+        if let index = levels.firstIndex(where: { $0.id == level.id }) {
+            currentLevelIndex = index
+        } else {
+            currentLevelIndex = nil; print("警告：开始的关卡 \(level.name) 在 levels 数组中未找到！")
+        }
+
+        if isNewSession { // 只有全新的会话才重置所有状态
+            moves = 0
+            timeElapsed = 0
+            isPaused = true // 新游戏默认暂停
+        }
+        // 对于切换关卡 (isNewSession = false)，moves, timeElapsed, isPaused 会在 switchToLevel 中处理
+
         isGameActive = true
         isGameWon = false
         
         pieces = level.piecePlacements.map { Piece(id: $0.id, type: $0.type, x: $0.initialX, y: $0.initialY) }
         rebuildGameBoard()
+        print("游戏开始/切换到: \(level.name) (索引: \(currentLevelIndex ?? -1)), isPaused: \(isPaused)")
+        SoundManager.playImpactHaptic(settings: settings)
         
-        print("游戏开始: \(level.name)")
-        SoundManager.playImpactHaptic(settings: settings) // Haptic for game start
-        // saveGame(settings: settings) // Optionally save at the very start
-        // hasSavedGame = true // Set by saveGame if it runs
+        if !isPaused && !isGameWon { // 如果不是暂停状态且未胜利，则启动计时器
+            startTimer()
+        } else {
+            stopTimer() // 其他情况确保计时器停止
+        }
+    }
+
+    // 切换到指定索引的关卡
+    func switchToLevel(at index: Int, settings: SettingsManager) {
+        guard index >= 0 && index < levels.count else { print("切换关卡失败：索引 \(index) 超出范围。"); return }
+        let newLevel = levels[index]
+        
+        // 切换关卡时，重置这些状态
+        moves = 0
+        timeElapsed = 0
+        isPaused = false // 新关卡默认不暂停
+        isGameWon = false
+        // isGameActive 保持 true
+        
+        stopTimer() // 先停止旧关卡的计时器
+        startGame(level: newLevel, settings: settings, isNewSession: false) // isNewSession false 表示是切换
+        clearSavedGameForCurrentLevelOnly() // 清除对这个新关卡尝试的任何旧存档
+    }
+
+    // 仅清除当前关卡的存档标记，但不清除关卡本身的最佳记录
+    private func clearSavedGameForCurrentLevelOnly() {
+        UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
+        UserDefaults.standard.removeObject(forKey: savedMovesKey)
+        UserDefaults.standard.removeObject(forKey: savedTimeKey)
+        UserDefaults.standard.removeObject(forKey: savedPiecesKey)
+        UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
+        hasSavedGame = false // 因为当前尝试的存档被清除了
+        print("已清除当前尝试的关卡存档。hasSavedGame = \(hasSavedGame)")
+    }
+
+    // 暂停游戏
+    func pauseGame() {
+        guard isGameActive && !isGameWon else { return } // 游戏结束或未开始不能暂停
+        if !isPaused {
+            isPaused = true
+            stopTimer()
+            print("游戏已暂停。时间: \(formattedTime(timeElapsed))")
+        }
+    }
+
+    // 继续游戏
+    func resumeGame(settings: SettingsManager) {
+        guard isGameActive && !isGameWon else { return } // 游戏结束或未开始不能继续
+        if isPaused {
+            isPaused = false
+            startTimer()
+            SoundManager.playImpactHaptic(settings: settings)
+            print("游戏已继续。")
+        }
+    }
+
+    // 启动计时器
+    func startTimer() {
+        stopTimer() // 先确保之前的计时器已停止
+        guard isGameActive && !isPaused && !isGameWon else { return } // 满足条件才启动
+        
+        timerSubscription = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.timeElapsed += 1
+            }
+        print("计时器已启动。isGameActive=\(isGameActive), isPaused=\(isPaused), isGameWon=\(isGameWon)")
+    }
+
+    // 停止计时器
+    func stopTimer() {
+        timerSubscription?.cancel()
+        timerSubscription = nil
+        print("计时器已停止。")
     }
     
     // 尝试移动棋子 (由拖动手势结束时调用)
     // dx, dy 是格子单位的位移
     func attemptMove(pieceId: Int, dx: Int, dy: Int, settings: SettingsManager) -> Bool {
+        guard isGameActive && !isPaused && !isGameWon else { 
+            print("尝试移动失败：游戏非活动、已暂停或已胜利。")
+            return false 
+        } // 增加检查
         guard let level = currentLevel, var pieceToMove = pieces.first(where: { $0.id == pieceId }),
               (dx != 0 || dy != 0) else {
             return false // No actual displacement
@@ -131,7 +229,6 @@ class GameManager: ObservableObject {
                 let targetBoardX = newX + c
                 if let occupyingPieceId = gameBoard[targetBoardY][targetBoardX], occupyingPieceId != pieceId {
                     print("移动无效：棋子 \(pieceId) 与棋子 \(occupyingPieceId) 在 (\(targetBoardX), \(targetBoardY)) 发生碰撞。")
-                    // SoundManager.playHapticNotification(type: .error, settings: settings) // Handled in GameView
                     return false
                 }
             }
@@ -149,7 +246,6 @@ class GameManager: ObservableObject {
         
         moves += abs(dx) + abs(dy)
         print("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
-        // SoundManager.playImpactHaptic(settings: settings) // Handled in GameView after successful call
         
         checkWinCondition(movedPiece: pieceToMove, settings: settings)
         
@@ -192,60 +288,75 @@ class GameManager: ObservableObject {
         guard let level = currentLevel, !isGameWon else { return } // 防止重复触发胜利
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
-            // isGameActive = false; // 不在这里设置 isGameActive = false，交由 GameView 的胜利界面处理
+            stopTimer() // 胜利时停止计时器
             print("恭喜！关卡 \(level.name) 完成！总步数: \(moves)")
             SoundManager.playSound(named: "victory_fanfare", settings: settings) // 立即播放胜利音效
             SoundManager.playHapticNotification(type: .success, settings: settings) // 立即播放胜利触感
-            clearSavedGame() // 清除已完成关卡的存档
+            
+            if let currentIndex = currentLevelIndex {
+                var completedLevel = levels[currentIndex]
+                var recordUpdated = false
+                if completedLevel.bestMoves == nil || moves < completedLevel.bestMoves! {
+                    completedLevel.bestMoves = moves
+                    recordUpdated = true
+                    print("新纪录：最少步数 \(moves) 步！")
+                }
+                if completedLevel.bestTime == nil || timeElapsed < completedLevel.bestTime! {
+                    completedLevel.bestTime = timeElapsed
+                    recordUpdated = true
+                    print("新纪录：最短时间 \(formattedTime(timeElapsed))！")
+                }
+                if recordUpdated {
+                    levels[currentIndex] = completedLevel
+                    // TODO P2: 在这里持久化整个 levels 数组 (例如保存到 UserDefaults)
+                    // persistLevelsArray()
+                }
+            }
+            clearSavedGameForCurrentLevelOnly() // 清除当前尝试的存档，因为关卡已完成
         }
     }
     
     
     func continueGame(settings: SettingsManager) {
         guard let savedLevelID = UserDefaults.standard.string(forKey: savedLevelIDKey),
-              let levelToContinue = levels.first(where: { $0.id == savedLevelID }) else {
-            print("未找到有效存档ID或对应关卡。")
-            clearSavedGame() // Clear any partial/corrupt save
-            hasSavedGame = false
-            return
+              let savedLevelIndex = UserDefaults.standard.object(forKey: savedLevelIndexKey) as? Int, // 加载索引
+              savedLevelIndex >= 0 && savedLevelIndex < levels.count, // 确保索引有效
+              let levelToContinue = levels.first(where: { $0.id == savedLevelID }), // 确保关卡ID匹配
+              UserDefaults.standard.object(forKey: savedPiecesKey) != nil,
+              UserDefaults.standard.object(forKey: savedMovesKey) != nil,
+              UserDefaults.standard.object(forKey: savedTimeKey) != nil
+        else {
+            print("继续游戏失败：未找到有效或完整的存档。将清除任何部分存档。")
+            clearSavedGame(); hasSavedGame = false; return
         }
         
         self.currentLevel = levelToContinue
+        self.currentLevelIndex = savedLevelIndex // 设置当前关卡索引
         self.moves = UserDefaults.standard.integer(forKey: savedMovesKey)
         self.timeElapsed = UserDefaults.standard.double(forKey: savedTimeKey)
-        
+
         if let savedPiecesData = UserDefaults.standard.data(forKey: savedPiecesKey) {
             do {
-                let decoder = JSONDecoder()
-                let decodedPieces = try decoder.decode([Piece].self, from: savedPiecesData)
-                self.pieces = decodedPieces
+                self.pieces = try JSONDecoder().decode([Piece].self, from: savedPiecesData)
                 rebuildGameBoard()
-                self.isGameActive = true
-                self.isGameWon = false // Ensure win state is reset
-                print("继续游戏: \(levelToContinue.name), 棋子状态已加载。")
+                self.isGameActive = true; self.isGameWon = false
+                print("继续游戏: \(levelToContinue.name) (索引: \(savedLevelIndex)), 棋子状态已加载。")
                 SoundManager.playImpactHaptic(settings: settings)
-                // Check win condition in case the saved state was already a win (unlikely for Klotski mid-game)
+                if !self.isPaused && !self.isGameWon { startTimer() } // 如果不是暂停状态且未胜利，则启动计时器
                 if let targetPiece = pieces.first(where: {$0.id == levelToContinue.targetPieceId}) {
-                    checkWinCondition(movedPiece: targetPiece, settings: settings) // Re-check, might clear save if won
-                }
+                     checkWinCondition(movedPiece: targetPiece, settings: settings)
+                 }
             } catch {
-                print("错误：无法解码已保存的棋子状态: \(error)。将清除存档并尝试重新开始关卡。")
+                print("错误：无法解码已保存的棋子状态: \(error)。将清除存档。")
                 clearSavedGame()
                 hasSavedGame = false
-                isGameActive = false // Prevent navigation to broken state
-                // Optionally, you could offer to start the level fresh:
-                // startGame(level: levelToContinue, settings: settings)
+                isGameActive = false
             }
-        } else {
-            print("未找到已保存的棋子数据。存档不完整。将清除存档。")
-            clearSavedGame()
-            hasSavedGame = false
-            isGameActive = false
         }
     }
     
     func saveGame(settings: SettingsManager) {
-        guard let currentLevel = currentLevel else {
+        guard let currentLevel = currentLevel, let currentIndex = currentLevelIndex else {
             print("SaveGame: 无当前关卡，无法保存。")
             return
         }
@@ -255,8 +366,10 @@ class GameManager: ObservableObject {
             return
         }
         UserDefaults.standard.set(currentLevel.id, forKey: savedLevelIDKey)
+        UserDefaults.standard.set(currentIndex, forKey: savedLevelIndexKey)
         UserDefaults.standard.set(moves, forKey: savedMovesKey)
         UserDefaults.standard.set(timeElapsed, forKey: savedTimeKey)
+        UserDefaults.standard.set(isPaused, forKey: savedIsPausedKey)
         do {
             let encodedPieces = try JSONEncoder().encode(pieces)
             UserDefaults.standard.set(encodedPieces, forKey: savedPiecesKey)
@@ -270,9 +383,11 @@ class GameManager: ObservableObject {
     
     func clearSavedGame() {
         UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
+        UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
         UserDefaults.standard.removeObject(forKey: savedMovesKey)
         UserDefaults.standard.removeObject(forKey: savedTimeKey)
         UserDefaults.standard.removeObject(forKey: savedPiecesKey) // Clear saved pieces
+        UserDefaults.standard.removeObject(forKey: savedIsPausedKey)
         hasSavedGame = false
         print("已清除已保存的游戏及棋子状态")
     }
@@ -292,13 +407,13 @@ class GameManager: ObservableObject {
             }
         }
     }
-    
-    func completeLevel(moves: Int, time: TimeInterval, settings: SettingsManager) { // Pass settings
-        print("关卡 \(currentLevel?.name ?? "N/A") 完成！步数: \(moves), 时间: \(String(format: "%.2f", time))s")
-        // TODO P2: Update level stats (bestMoves, bestTime) in the `levels` array and persist them.
-        // TODO P2: Submit to Game Center leaderboard.
-        clearSavedGame()
-        isGameActive = false
+
+    // 辅助函数：格式化时间显示
+    func formattedTime(_ time: TimeInterval?) -> String {
+        guard let time = time else { return "--:--" }
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
