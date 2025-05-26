@@ -6,37 +6,41 @@
 //
 import SwiftUI
 
-// MARK: 主菜单视图
+// MARK: - MainMenuView
 struct MainMenuView: View {
+    // MARK: Environment Objects
     @EnvironmentObject var gameManager: GameManager
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var themeManager: ThemeManager
 
-    @State private var showingLoginSheet = false
-    @State private var showingRegisterSheet = false
+    // MARK: State Variables
+    @State private var showingLoginSheet = false    // 控制登录表单是否显示
+    @State private var showingRegisterSheet = false // 控制注册表单是否显示
 
+    // MARK: Body
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: 20) { // 主垂直堆栈，用于排列菜单项
+                // 游戏标题
                 Text(settingsManager.localizedString(forKey: "gameTitle"))
-                   .font(.system(size: 36, weight: .bold, design: .rounded)) // Example of a custom font style
-                   .padding(.top, 40)
-                   .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                   .font(.system(size: 36, weight: .bold, design: .rounded))
+                   .padding(.top, 40) // 顶部留白
+                   .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用主题颜色
                 
-                // MARK: DEBUG: 显示 hasSavedGame 状态
-                Text("调试信息: hasSavedGame = \(gameManager.hasSavedGame.description)")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .padding(.top, 5)
+                // 调试信息：显示 hasSavedGame 状态
+                // Text("调试信息: hasSavedGame = \(gameManager.hasSavedGame.description)")
+                //     .font(.caption)
+                //     .foregroundColor(.gray)
+                //     .padding(.top, 5)
 
-                Spacer()
+                Spacer() // 弹性空间，将按钮推向中心
 
+                // "开始游戏" 按钮
                 Button(action: {
                     SoundManager.playImpactHaptic(settings: settingsManager)
                     if let firstLevel = gameManager.levels.first {
-                        // 开始新游戏时，总是清除之前的“继续游戏”存档
-                        gameManager.clearSavedGame() // 确保没有旧的存档干扰
+                        gameManager.clearSavedGame()
                         gameManager.startGame(level: firstLevel, settings: settingsManager, isNewSession: true)
                     } else {
                         print("错误：关卡列表为空，无法开始游戏！")
@@ -45,72 +49,90 @@ struct MainMenuView: View {
                     MenuButton(title: settingsManager.localizedString(forKey: "startGame"))
                 }
 
+                // "继续游戏" 按钮
                 if gameManager.hasSavedGame {
                     Button(action: {
                         SoundManager.playImpactHaptic(settings: settingsManager)
-                        gameManager.continueGame(settings: settingsManager) // Pass settingsManager
-                    }) { MenuButton(title: settingsManager.localizedString(forKey: "continueGame")) }
+                        gameManager.continueGame(settings: settingsManager)
+                    }) {
+                        MenuButton(title: settingsManager.localizedString(forKey: "continueGame"))
+                    }
                 }
                 
+                // "选择关卡" 导航链接
                 NavigationLink(destination: LevelSelectionView()) {
                      MenuButton(title: settingsManager.localizedString(forKey: "selectLevel"))
                 }
                 .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
+                // "主题" 导航链接
                 NavigationLink(destination: ThemeSelectionView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "themes"))
                 }
                 .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
+                // "排行榜" 导航链接
                 NavigationLink(destination: LeaderboardView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "leaderboard"))
                 }
                 .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
+                // "设置" 导航链接
                 NavigationLink(destination: SettingsView()) {
                     MenuButton(title: settingsManager.localizedString(forKey: "settings"))
                 }
                 .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
                 
-                Spacer()
+                Spacer() 
+
+                // 认证状态视图 (登录/注册/注销按钮)
                 authStatusView().padding(.bottom)
 
             }
-           .frame(maxWidth:.infinity, maxHeight:.infinity)
-           .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
+           .frame(maxWidth: .infinity, maxHeight: .infinity) 
+           .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea()) 
            .sheet(isPresented: $showingLoginSheet) { LoginView() }
            .sheet(isPresented: $showingRegisterSheet) { RegisterView() }
-           // Modifier for programmatic navigation to GameView
-           .navigationDestination(isPresented: $gameManager.isGameActive) {GameView()}
-            // MARK: DEBUG: 视图出现时打印状态
-           .onAppear {print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)")}
+           .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
+           .onAppear {
+               print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)")
+               print("MainMenuView onAppear: authManager.isLoggedIn = \(authManager.isLoggedIn), isLoading = \(authManager.isLoading)")
+           }
         }
+        .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
     }
     
     @ViewBuilder
     private func authStatusView() -> some View {
         VStack {
-            if authManager.isLoggedIn, let user = authManager.currentUser {
+            if authManager.isLoading && !authManager.isLoggedIn { // 正在加载认证状态且尚未登录
+                ProgressView()
+                    .padding(.bottom, 10)
+            } else if authManager.isLoggedIn, let user = authManager.currentUser {
                 Text("\(settingsManager.localizedString(forKey: "loggedInAs")) \(user.displayName ?? user.email ?? "User")")
                    .font(.caption)
                    .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                   .padding(.bottom, 5)
                 Button(settingsManager.localizedString(forKey: "logout")) {
+                    SoundManager.playImpactHaptic(settings: settingsManager)
                     authManager.logout()
                 }
-               .buttonStyle(.bordered)
+               .buttonStyle(.bordered) 
                .tint(themeManager.currentTheme.sliderColor.color)
             } else {
-                HStack {
+                HStack(spacing: 15) {
                     Button(settingsManager.localizedString(forKey: "login")) {
-                        showingLoginSheet = true
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        showingLoginSheet = true 
                     }
-                   .buttonStyle(.borderedProminent)
+                   .buttonStyle(.borderedProminent) 
                    .tint(themeManager.currentTheme.sliderColor.color)
                     
                     Button(settingsManager.localizedString(forKey: "register")) {
-                        showingRegisterSheet = true
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        showingRegisterSheet = true 
                     }
-                   .buttonStyle(.bordered)
+                   .buttonStyle(.bordered) 
                    .tint(themeManager.currentTheme.sliderColor.color)
                 }
             }
@@ -170,6 +192,7 @@ struct LevelSelectionView: View {
 
     var isPresentedAsPanel: Bool = false // 标记是否作为面板显示
     var dismissPanelAction: (() -> Void)? = nil // 关闭面板的回调
+    var onLevelSelected: (() -> Void)? = nil // 
 
     var body: some View {
         // 根据是否作为面板显示，决定是否包裹 NavigationView
@@ -191,6 +214,7 @@ struct LevelSelectionView: View {
                     gameManager.clearSavedGame() // 开始新选择的关卡前清除旧存档
                     gameManager.startGame(level: level, settings: settingsManager, isNewSession: true)
                     dismissPanelAction?() // 如果是面板，则关闭面板
+                    onLevelSelected?()
                 }) {
                     HStack {
                         VStack(alignment: .leading) { Text(level.name).font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline).foregroundColor(themeManager.currentTheme.sliderColor.color); if let moves = level.bestMoves { Text("最佳: \(moves) \(settingsManager.localizedString(forKey: "moves"))").font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption).foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7)) } else { Text("未完成").font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption).foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5)) } }; Spacer(); Image(systemName: "chevron.right").foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5))
@@ -226,55 +250,34 @@ struct LevelSelectionView: View {
 struct ThemeSelectionView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var settingsManager: SettingsManager
+    // Inject AuthManager to pass to themeManager.themePurchased or themeManager.themesRestored
+    @EnvironmentObject var authManager: AuthManager
+
 
     var body: some View {
         List {
             Section(header: Text(settingsManager.localizedString(forKey: "themeStore"))
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
                 .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
+                
                 ForEach(themeManager.themes) { theme in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(theme.name)
-                               .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-                            // Simple preview of theme colors
-                            HStack {
-                                Circle().fill(theme.backgroundColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
-                                Circle().fill(theme.sliderColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
-                                if let font = theme.fontName { Text(font).font(.caption2).italic() }
-                            }
-                        }
-                       .foregroundColor(themeManager.currentTheme.sliderColor.color)
-
-                        Spacer()
-
-                        if themeManager.currentTheme.id == theme.id {
-                            Image(systemName: "checkmark.circle.fill")
-                               .foregroundColor(.green)
-                               .font(.title2)
-                        } else if themeManager.isThemePurchased(theme) {
-                            Button(settingsManager.localizedString(forKey: "applyTheme")) {
-                                themeManager.setCurrentTheme(theme)
-                            }
-                           .buttonStyle(.bordered)
-                           .tint(themeManager.currentTheme.sliderColor.color)
-                        } else {
-                            Button("\(settingsManager.localizedString(forKey: "purchase")) \(theme.price != nil ? String(format: "¥%.2f", theme.price!) : "")") {
-                                themeManager.purchaseTheme(theme) // This is a simulated purchase
-                            }
-                           .buttonStyle(.borderedProminent)
-                           .tint(theme.isPremium ? .pink : themeManager.currentTheme.sliderColor.color) // Highlight premium themes
-                        }
-                    }
-                   .padding(.vertical, 8)
-                   .listRowBackground(themeManager.currentTheme.backgroundColor.color)
+                    // Call the new helper function for the row content
+                    themeRow(for: theme)
+                       .listRowBackground(themeManager.currentTheme.backgroundColor.color)
                 }
             }
             
             Section {
                  Button(settingsManager.localizedString(forKey: "restorePurchases")) {
-                    themeManager.restorePurchases() // Simulated
                     SoundManager.playImpactHaptic(settings: settingsManager)
+                    // In a real app, this would trigger StoreKit's restoreCompletedTransactions
+                    // For now, it calls a simulated method in ThemeManager
+                    // themeManager.restorePurchases() // Old simulated method
+                    // With StoreKit, you'd have an IAPManager or similar to call:
+                    // iapManager.restorePurchases { restoredIDs in
+                    //    themeManager.themesRestored(restoredThemeIDs: restoredIDs, authManager: authManager)
+                    // }
+                    print("恢复购买按钮被点击 (功能待StoreKit集成)")
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color)
                .foregroundColor(themeManager.currentTheme.sliderColor.color)
@@ -283,6 +286,61 @@ struct ThemeSelectionView: View {
        .navigationTitle(settingsManager.localizedString(forKey: "themes"))
        .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
        .scrollContentBackground(.hidden)
+       .preferredColorScheme(themeManager.currentTheme.swiftUIScheme) 
+    }
+
+    // Helper function to build each theme row, reducing complexity in the ForEach
+    @ViewBuilder
+    private func themeRow(for theme: Theme) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(theme.name)
+                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
+                
+                HStack {
+                    Circle().fill(theme.backgroundColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
+                    Circle().fill(theme.sliderColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
+                    if let font = theme.fontName { Text(font).font(.caption2).italic() }
+                }
+            }
+           .foregroundColor(themeManager.currentTheme.sliderColor.color)
+
+            Spacer() 
+
+            if themeManager.currentTheme.id == theme.id {
+                Image(systemName: "checkmark.circle.fill")
+                   .foregroundColor(.green)
+                   .font(.title2)
+            } else if themeManager.isThemePurchased(theme) {
+                Button(settingsManager.localizedString(forKey: "applyTheme")) {
+                    SoundManager.playImpactHaptic(settings: settingsManager)
+                    themeManager.setCurrentTheme(theme)
+                }
+               .buttonStyle(.bordered)
+               .tint(themeManager.currentTheme.sliderColor.color)
+            } else {
+                Button {
+                    SoundManager.playImpactHaptic(settings: settingsManager)
+                    // In a real app, this would trigger StoreKit's purchase flow
+                    // For now, it calls a simulated method in ThemeManager
+                    // themeManager.purchaseTheme(theme) // Old simulated method
+                    // With StoreKit, you'd have an IAPManager or similar to call:
+                    // iapManager.purchase(productID: theme.id) { success, purchasedID in
+                    //    if success, let id = purchasedID {
+                    //        themeManager.themePurchased(themeID: id, authManager: authManager)
+                    //    }
+                    // }
+                    print("购买主题 '\(theme.name)' 按钮被点击 (功能待StoreKit集成)")
+                    // Simulate purchase for testing UI, if needed, directly calling themePurchased
+                    // themeManager.themePurchased(themeID: theme.id, authManager: authManager) // Uncomment for UI testing of purchase flow
+                } label: {
+                    Text("\(settingsManager.localizedString(forKey: "purchase")) \(theme.price != nil ? String(format: "¥%.2f", theme.price!) : "")")
+                }
+               .buttonStyle(.borderedProminent)
+               .tint(theme.isPremium ? .pink : themeManager.currentTheme.sliderColor.color) 
+            }
+        }
+       .padding(.vertical, 8) // Apply padding to the HStack content
     }
 }
 

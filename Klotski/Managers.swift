@@ -9,6 +9,10 @@ import SwiftUI
 import AVFoundation // For future sound implementation
 import UIKit // For Haptics
 import Combine
+import CryptoKit
+import FirebaseAuth
+import FirebaseFirestore
+import AuthenticationServices
 
 class GameManager: ObservableObject {
     @Published var currentLevel: Level?
@@ -418,7 +422,8 @@ class GameManager: ObservableObject {
 }
 
 class ThemeManager: ObservableObject {
-    @Published var themes: [Theme] = [
+    // MARK: - Static Properties
+    static let defaultThemes: [Theme] = [
         Theme(id: "default", name: "默认浅色", isPremium: false,
               backgroundColor: CodableColor(color: .white),
               sliderColor: CodableColor(color: .blue), sliderTextColor: CodableColor(color: .white),
@@ -440,147 +445,516 @@ class ThemeManager: ObservableObject {
               boardBackgroundColor: CodableColor(color: Color(red: 180/255, green: 225/255, blue: 235/255)), boardGridLineColor: CodableColor(color: Color(red: 100/255, green: 150/255, blue: 180/255)),
               fontName: "HelveticaNeue-Light", colorScheme: .light)
     ]
+
+    // MARK: - Published Properties
+    @Published var themes: [Theme]
     @Published var currentTheme: Theme
-    @Published var purchasedThemeIDs: Set<String> = ["default", "dark"] // User initially owns free themes
+    @Published var purchasedThemeIDs: Set<String> // No default here, will be set in init
 
-    init() {
-        // `themes` 和 `purchasedThemeIDs` 属性已通过其声明进行了初始化。
-        // 现在需要初始化 `currentTheme`。
+    // MARK: - Private Properties
+    private var cancellables = Set<AnyCancellable>()
+    private let currentThemeIDKey = "currentThemeID_klotski_v2"
 
-        // 步骤 1: 为 `currentTheme` 提供一个明确的初始值。
-        // 我们直接使用“默认浅色”主题的定义来初始化 currentTheme。
-        // 这确保了在 self 完全初始化之前，currentTheme 就被赋值，
-        // 并且这个赋值不依赖于通过 `self` 访问 `themes` 数组。
-        let initialDefaultTheme = Theme(id: "default", name: "默认浅色", isPremium: false,
-                                        backgroundColor: CodableColor(color: .white),sliderColor: CodableColor(color: .blue),
-                                        sliderTextColor: CodableColor(color: .white),boardBackgroundColor: CodableColor(color: Color(white: 0.9)),
-                                        boardGridLineColor: CodableColor(color: Color(white: 0.7)),fontName: nil, colorScheme: .light)
-        self.currentTheme = initialDefaultTheme // 至此，所有存储属性都已初始化。
+    // MARK: - Initialization
+    init(authManager: AuthManager) {
+        // --- Phase 1: Initialize all stored properties of this class ---
 
-        // 步骤 2: 现在 `self` 已经完全初始化，可以安全地访问 `self.themes` (或简写为 `themes`)
-        // 来加载用户偏好设置并更新 `currentTheme`。
-        let savedThemeID = UserDefaults.standard.string(forKey: "currentThemeID") ?? "default" // 使用 "default" 作为备用ID
+        // Step 1: Initialize `themes` from the static source.
+        let localDefaultThemes = ThemeManager.defaultThemes
+        self.themes = localDefaultThemes
 
-        // 尝试从 `self.themes` 数组中找到保存的主题。
-        // 如果找到，则更新 `self.currentTheme`。否则，它将保持为 `initialDefaultTheme`。
-        if let themeFromUserDefaults = self.themes.first(where: { $0.id == savedThemeID }) {
-            self.currentTheme = themeFromUserDefaults
+        // Step 2: Calculate and initialize `purchasedThemeIDs`.
+        // Use `localDefaultThemes` instead of `self.themes` here to avoid any ambiguity for the compiler.
+        var calculatedPurchasedIDs = Set(localDefaultThemes.filter { !$0.isPremium }.map { $0.id })
+        if let userProfile = authManager.currentUser {
+            calculatedPurchasedIDs.formUnion(userProfile.purchasedThemeIDs)
         }
-        // 如果 `savedThemeID` 是 "default"，并且它与 `initialDefaultTheme` 相同，则不会发生变化。
-        // 如果 `savedThemeID` 是 `themes` 中存在的其他ID，则 `currentTheme` 会被更新。
-        // 如果 `savedThemeID` 在 `themes` 中不存在，则 `currentTheme` 保持为 `initialDefaultTheme`。
-        loadPurchasedThemes()
+        self.purchasedThemeIDs = calculatedPurchasedIDs // `purchasedThemeIDs` is now initialized.
+
+        // Step 3: Calculate and initialize `currentTheme`.
+        // This logic also uses `localDefaultThemes` and `calculatedPurchasedIDs` to avoid early `self` access issues.
+        let savedThemeID = UserDefaults.standard.string(forKey: self.currentThemeIDKey) // Accessing `self.currentThemeIDKey` (a let constant) is fine.
+        var themeToSetAsCurrent: Theme? = nil
+
+        if let themeID = savedThemeID,
+           let savedThemeCandidate = localDefaultThemes.first(where: { $0.id == themeID }) {
+            // Check if this savedThemeCandidate is "purchased" based on `calculatedPurchasedIDs`
+            let isSavedThemeCandidatePurchased = !savedThemeCandidate.isPremium || calculatedPurchasedIDs.contains(savedThemeCandidate.id)
+            if isSavedThemeCandidatePurchased {
+                themeToSetAsCurrent = savedThemeCandidate
+            }
+        }
+
+        if let theme = themeToSetAsCurrent {
+            self.currentTheme = theme
+        } else if let defaultLightTheme = localDefaultThemes.first(where: { $0.id == "default" }) ?? localDefaultThemes.first {
+            self.currentTheme = defaultLightTheme
+            // If we fell back to default, ensure UserDefaults reflects this if a savedThemeID existed but was invalid
+             if savedThemeID != nil && self.currentTheme.id != savedThemeID {
+                 UserDefaults.standard.set(self.currentTheme.id, forKey: self.currentThemeIDKey)
+             }
+        } else {
+            // Fallback if defaultThemes is empty or "default" theme is missing.
+            let fallback = Theme(id: "fallback", name: "备用", isPremium: false, backgroundColor: CodableColor(color: .gray), sliderColor: CodableColor(color: .secondary), sliderTextColor: CodableColor(color: .black), boardBackgroundColor: CodableColor(color: .white), boardGridLineColor: CodableColor(color: Color(.systemGray)))
+            self.currentTheme = fallback
+            print("CRITICAL WARNING: ThemeManager initialized with a fallback theme. Check defaultThemes and loading logic.")
+        }
+        // All stored properties (`themes`, `purchasedThemeIDs`, `currentTheme`, `cancellables`, `currentThemeIDKey`) are NOW initialized.
+        // Phase 1 is complete.
+
+        // --- Phase 2: `self` is now fully available ---
+        print("ThemeManager initialized. Current theme: '\(self.currentTheme.name)'. Purchased IDs: \(self.purchasedThemeIDs)")
+
+        // Setup Combine subscription to listen for changes in AuthManager's currentUser.
+        authManager.$currentUser
+            .sink { [weak self] userProfile in
+                guard let self = self else { return }
+                
+                var newPurchasedIDsOnAuthChange = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
+                
+                if let profile = userProfile {
+                    newPurchasedIDsOnAuthChange.formUnion(profile.purchasedThemeIDs)
+                }
+                
+                if self.purchasedThemeIDs != newPurchasedIDsOnAuthChange {
+                    self.purchasedThemeIDs = newPurchasedIDsOnAuthChange
+                    print("ThemeManager: purchasedThemeIDs updated due to auth change: \(self.purchasedThemeIDs)")
+                    
+                    if !self.isThemePurchased(self.currentTheme) { // Now `self.isThemePurchased` can be safely called.
+                        if let defaultTheme = self.themes.first(where: { $0.id == "default"}) ?? self.themes.first {
+                            self.setCurrentTheme(defaultTheme) // `self.setCurrentTheme` can also be safely called.
+                            print("ThemeManager: Current theme ('\(self.currentTheme.name)') was no longer purchased after auth change, reset to default theme ('\(defaultTheme.name)').")
+                        }
+                    }
+                }
+            }
+            .store(in: &cancellables) // `self.cancellables` is fine to access here.
     }
 
+    // MARK: - Public Methods
     func setCurrentTheme(_ theme: Theme) {
-        currentTheme = theme
-        UserDefaults.standard.set(theme.id, forKey: "currentThemeID")
-        print("主题已更改为: \(theme.name)")
-    }
-
-    func purchaseTheme(_ theme: Theme) {
-        // TODO: Implement IAP logic with StoreKit. This is a placeholder.
-        // In a real app, this would involve calls to StoreKit to process the purchase.
-        print("模拟购买主题: \(theme.name)")
-        // If purchase is successful (simulated):
-        if theme.isPremium {
-            purchasedThemeIDs.insert(theme.id)
-            savePurchasedThemes()
-            print("主题 \(theme.name) 已购买 (模拟)")
+        guard themes.contains(where: { $0.id == theme.id }), isThemePurchased(theme) else {
+            print("ThemeManager: Attempted to set an invalid or unpurchased theme ('\(theme.name)'). Ignoring.")
+            if let defaultTheme = self.themes.first(where: { $0.id == "default"}) ?? self.themes.first, isThemePurchased(defaultTheme) {
+                 if currentTheme.id != defaultTheme.id {
+                    currentTheme = defaultTheme
+                    UserDefaults.standard.set(defaultTheme.id, forKey: currentThemeIDKey)
+                    print("ThemeManager: Fallback to default theme ('\(defaultTheme.name)') as '\(theme.name)' was invalid/unpurchased.")
+                 }
+            }
+            return
         }
-    }
-    
-    func restorePurchases() {
-        // TODO: Implement IAP restore logic using StoreKit.
-        print("正在恢复已购买项目... (模拟)")
-        // Example: Simulate finding a previously purchased premium theme.
-        // self.purchasedThemeIDs.insert("forest")
-        // self.purchasedThemeIDs.insert("ocean")
-        // savePurchasedThemes()
-        // print("已恢复购买项目 (模拟)")
-    }
 
-    private func savePurchasedThemes() {
-        let idsArray = Array(purchasedThemeIDs)
-        UserDefaults.standard.set(idsArray, forKey: "purchasedThemeIDs")
-    }
-
-    private func loadPurchasedThemes() {
-        if let idsArray = UserDefaults.standard.array(forKey: "purchasedThemeIDs") as? [String] {
-            self.purchasedThemeIDs = Set(idsArray)
+        if currentTheme.id != theme.id {
+            currentTheme = theme
+            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey)
+            print("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
         }
     }
 
     func isThemePurchased(_ theme: Theme) -> Bool {
         return !theme.isPremium || purchasedThemeIDs.contains(theme.id)
     }
+
+    func themePurchased(themeID: String, authManager: AuthManager) {
+        guard let purchasedThemeObject = themes.first(where: { $0.id == themeID && $0.isPremium }) else {
+            print("ThemeManager: Attempted to mark non-existent or free theme ID '\(themeID)' as purchased. Ignoring.")
+            return
+        }
+
+        if purchasedThemeIDs.insert(themeID).inserted {
+            print("ThemeManager: Theme ID '\(themeID)' successfully marked as purchased locally.")
+            if authManager.isLoggedIn {
+                authManager.updateUserPurchasedThemes(themeIDs: purchasedThemeIDs)
+            } else {
+                print("ThemeManager: Theme '\(themeID)' purchased by a non-logged-in user. State updated locally. Consider prompting user to sign in to sync purchases.")
+            }
+            setCurrentTheme(purchasedThemeObject)
+        } else {
+            print("ThemeManager: Theme ID '\(themeID)' was already in purchased set. No local change needed.")
+        }
+    }
+    
+    func themesRestored(restoredThemeIDsFromStoreKit: Set<String>, authManager: AuthManager) {
+        var didUpdate = false
+        for themeID in restoredThemeIDsFromStoreKit {
+            if let theme = themes.first(where: { $0.id == themeID && $0.isPremium }) {
+                if purchasedThemeIDs.insert(theme.id).inserted {
+                    didUpdate = true
+                    print("ThemeManager: Restored theme ID '\(theme.id)' added to local purchased set.")
+                }
+            }
+        }
+
+        if didUpdate {
+            print("ThemeManager: Purchased themes restored. New local set: \(purchasedThemeIDs)")
+            if authManager.isLoggedIn {
+                authManager.updateUserPurchasedThemes(themeIDs: purchasedThemeIDs)
+            } else {
+                print("ThemeManager: Themes restored for non-logged-in user. State updated locally. Consider prompting to sign in.")
+            }
+        } else {
+            print("ThemeManager: No new themes were added from restoration, or restored IDs were not valid premium themes.")
+        }
+    }
 }
 
 class AuthManager: ObservableObject {
     @Published var currentUser: UserProfile?
     @Published var isLoggedIn: Bool = false
+    @Published var isLoading: Bool = false // 用于指示认证操作是否正在进行
+    @Published var errorMessage: String? // 用于向 UI 显示认证错误信息
+
+    private var db = Firestore.firestore()
+    private var authStateHandler: AuthStateDidChangeListenerHandle?
+    private var cancellables = Set<AnyCancellable>()
 
     init() {
-        // TODO: Check for saved login state (e.g., Keychain for tokens, UserDefaults for user profile data)
-        // For now, simulate logged out state.
-        // Example of loading a saved user:
-        // if let userData = UserDefaults.standard.data(forKey: "currentUserProfile"),
-        //    let user = try? JSONDecoder().decode(UserProfile.self, from: userData) {
-        //     self.currentUser = user
-        //     self.isLoggedIn = true
-        //     // Also load purchased themes associated with this user if stored server-side
-        // }
+        listenToAuthState()
+        print("AuthManager initialized.")
     }
 
-    func login(email: String, pass: String) {
-        // TODO: Implement actual login logic (e.g., Firebase, custom backend API call)
-        print("尝试登录: \(email)")
-        // Simulate successful login for demonstration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { // Simulate network delay
-            self.currentUser = UserProfile(uid: "demo-uid-\(UUID().uuidString)", displayName: "测试用户", email: email, purchasedThemeIDs: ["default", "dark"]) // Initialize with default themes
-            self.isLoggedIn = true
-            // self.saveCurrentUserProfile() // Persist user profile
-            print("登录成功")
+    deinit {
+        if let handle = authStateHandler {
+            Auth.auth().removeStateDidChangeListener(handle)
+            print("Auth state listener removed.")
         }
     }
 
+    /// 监听 Firebase Auth 状态变化
+    private func listenToAuthState() {
+        authStateHandler = Auth.auth().addStateDidChangeListener { [weak self] (auth, user) in
+            guard let self = self else { return }
+            self.isLoading = true // 开始加载状态
+            self.errorMessage = nil
+
+            if let firebaseUser = user {
+                print("User is signed in with UID: \(firebaseUser.uid)")
+                // 用户已登录，从 Firestore 获取 UserProfile
+                self.fetchUserProfile(uid: firebaseUser.uid) { profile in
+                    self.currentUser = profile
+                    self.isLoggedIn = (profile != nil)
+                    self.isLoading = false
+                    if profile == nil {
+                        print("AuthManager: User signed in but profile not found for UID: \(firebaseUser.uid). This might happen if profile creation failed after registration.")
+                        // 这种情况可能需要特殊处理，例如尝试重新创建 Profile 或提示用户
+                    } else {
+                        print("AuthManager: UserProfile loaded for \(profile?.displayName ?? "N/A")")
+                    }
+                }
+            } else {
+                print("User is signed out.")
+                self.currentUser = nil
+                self.isLoggedIn = false
+                self.isLoading = false
+            }
+        }
+    }
+
+    /// 从 Firestore 获取用户配置信息
+    private func fetchUserProfile(uid: String, completion: @escaping (UserProfile?) -> Void) {
+        let userDocRef = db.collection("users").document(uid)
+        userDocRef.getDocument { (document, error) in
+            if let error = error {
+                print("Error fetching user profile: \(error.localizedDescription)")
+                self.errorMessage = "无法加载用户信息: \(error.localizedDescription)"
+                completion(nil)
+                return
+            }
+            
+            let result = Result {
+                try document?.data(as: UserProfile.self)
+            }
+            switch result {
+            case .success(let userProfile):
+                if let profile = userProfile {
+                    print("Successfully fetched user profile for UID: \(uid)")
+                    completion(profile)
+                } else {
+                    print("User profile document does not exist for UID: \(uid) (or failed to decode)")
+                    // 这可能发生在用户通过 Firebase Auth 注册，但 Firestore 文档创建失败的情况
+                    completion(nil)
+                }
+            case .failure(let error):
+                print("Error decoding user profile: \(error.localizedDescription)")
+                self.errorMessage = "解析用户信息失败: \(error.localizedDescription)"
+                // 如果是因为文档不存在而解码失败，错误类型可能是 `DecodingError.valueNotFound`
+                // FirestoreSwift 的 `data(as:)` 在文档不存在时会返回 nil，然后尝试解包 nil 会导致错误
+                // 更稳妥的做法是先检查 document?.exists
+                if let document = document, !document.exists {
+                     print("Document for UID \(uid) does not exist.")
+                }
+                completion(nil)
+            }
+        }
+    }
+
+    /// 创建或更新 Firestore 中的用户配置信息
+    private func updateUserProfileInFirestore(userProfile: UserProfile) {
+        let documentID = userProfile.uid
+        do {
+            // 使用 userProfile.uid 作为文档 ID
+            try db.collection("users").document(documentID).setData(from: userProfile, merge: true) { error in
+                if let error = error {
+                    print("Error writing user profile to Firestore: \(error.localizedDescription)")
+                    self.errorMessage = "保存用户信息失败: \(error.localizedDescription)"
+                } else {
+                    print("UserProfile successfully written to Firestore for UID: \(documentID)")
+                }
+            }
+        } catch {
+            print("Error encoding user profile for Firestore: \(error.localizedDescription)")
+            self.errorMessage = "编码用户信息失败: \(error.localizedDescription)"
+        }
+    }
+
+    /// 邮箱密码注册
     func register(email: String, pass: String, displayName: String) {
-        // TODO: Implement actual registration logic
-        print("尝试注册: \(email)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            self.currentUser = UserProfile(uid: "new-uid-\(UUID().uuidString)", displayName: displayName, email: email, purchasedThemeIDs: ["default", "dark"])
-            self.isLoggedIn = true
-            // self.saveCurrentUserProfile()
-            print("注册成功")
+        self.isLoading = true
+        self.errorMessage = nil
+        Auth.auth().createUser(withEmail: email, password: pass) { [weak self] (authResult, error) in
+            guard let self = self else { return }
+            if let error = error {
+                print("Error registering user: \(error.localizedDescription)")
+                self.errorMessage = "注册失败: \(error.localizedDescription)"
+                self.isLoading = false
+                return
+            }
+            guard let firebaseUser = authResult?.user else {
+                print("Registration successful, but no user object returned.")
+                self.errorMessage = "注册成功但无法获取用户信息。"
+                self.isLoading = false
+                return
+            }
+            print("User registered successfully with UID: \(firebaseUser.uid)")
+            // 创建 UserProfile 并保存到 Firestore
+            let newUserProfile = UserProfile(
+                uid: firebaseUser.uid, // 使用 Firebase Auth UID
+                displayName: displayName,
+                email: email,
+                purchasedThemeIDs: Set(ThemeManager.defaultThemes.filter { !$0.isPremium }.map { $0.id }), // 默认拥有免费主题
+                registrationDate: Date()
+            )
+            // 注意：此时 newUserProfile.id (来自 @DocumentID) 还是 nil，
+            // updateUserProfileInFirestore 会使用 uid 作为文档 ID
+            self.updateUserProfileInFirestore(userProfile: newUserProfile)
+            // AuthStateDidChangeListener 会自动处理 currentUser 和 isLoggedIn 的更新
+            // self.isLoading 会在 listener 中被设为 false
+        }
+    }
+
+    /// 邮箱密码登录
+    func login(email: String, pass: String) {
+        self.isLoading = true
+        self.errorMessage = nil
+        Auth.auth().signIn(withEmail: email, password: pass) { [weak self] (authResult, error) in
+            guard let self = self else { return }
+            if let error = error {
+                print("Error signing in user: \(error.localizedDescription)")
+                self.errorMessage = "登录失败: \(error.localizedDescription)"
+                self.isLoading = false
+                return
+            }
+            print("User signed in successfully.")
+            // AuthStateDidChangeListener 会自动处理 currentUser 和 isLoggedIn 的更新
+            // self.isLoading 会在 listener 中被设为 false
+        }
+    }
+
+    /// 注销
+    func logout() {
+        self.isLoading = true // 虽然注销很快，但保持一致性
+        self.errorMessage = nil
+        do {
+            try Auth.auth().signOut()
+            print("User signed out successfully.")
+            // AuthStateDidChangeListener 会自动处理 currentUser 和 isLoggedIn 的更新
+            // self.isLoading 会在 listener 中被设为 false
+        } catch let signOutError as NSError {
+            print("Error signing out: %@", signOutError)
+            self.errorMessage = "注销失败: \(signOutError.localizedDescription)"
+            self.isLoading = false
         }
     }
     
-    func signInWithApple() {
-        // TODO: Implement Sign in with Apple using AuthenticationServices framework.
-        // This involves handling ASAuthorizationControllerDelegate methods.
-        print("尝试通过Apple登录...")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            self.currentUser = UserProfile(uid: "apple-uid-\(UUID().uuidString)", displayName: "Apple 用户", email: "apple.user@example.com", purchasedThemeIDs: ["default", "dark"])
-            self.isLoggedIn = true
-            // self.saveCurrentUserProfile()
-            print("通过Apple登录成功 (模拟)")
-        }
-    }
-
-    func logout() {
-        // TODO: Clear session, tokens from Keychain, etc.
-        currentUser = nil
-        isLoggedIn = false
-        // UserDefaults.standard.removeObject(forKey: "currentUserProfile")
-        print("已注销")
-    }
-
-    // private func saveCurrentUserProfile() {
-    //     if let user = currentUser, let userData = try? JSONEncoder().encode(user) {
-    //         UserDefaults.standard.set(userData, forKey: "currentUserProfile")
+    // --- Sign in with Apple ---
+    // 当前窗口，用于 Sign in with Apple 的 presentationContextProvider
+    // 你需要从你的 App Scene 中获取这个 window
+    // 例如，在 KlotskiApp.swift 中：
+    // .onReceive(NotificationCenter.default.publisher(for: UIWindow.didBecomeKeyNotification)) { notification in
+    //     if let window = notification.object as? UIWindow {
+    //         authManager.currentWindow = window // 假设 authManager 是全局可访问的
     //     }
     // }
+    weak var currentWindow: UIWindow?
+    private var currentNonce: String? // 用于 Sign in with Apple
+
+    // 准备 Sign in with Apple 请求
+    func createAppleSignInRequest() -> ASAuthorizationAppleIDRequest {
+        let appleIDProvider = ASAuthorizationAppleIDProvider()
+        let request = appleIDProvider.createRequest()
+        request.requestedScopes = [.fullName, .email] // 请求用户全名和邮箱
+
+        let nonce = randomNonceString() // 生成一个随机字符串作为 nonce
+        currentNonce = nonce
+        request.nonce = sha256(nonce) // SHA256 哈希处理 nonce
+
+        return request
+    }
+    
+    // 处理 Sign in with Apple 成功回调
+    func handleAppleSignIn(authorization: ASAuthorization) {
+        guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            print("Error: Unable to get Apple ID Credential.")
+            self.errorMessage = "Apple 登录凭证错误。"
+            return
+        }
+        guard let nonce = currentNonce else {
+            fatalError("Invalid state: A login callback was received, but no login request was sent.")
+        }
+        guard let appleIDToken = appleIDCredential.identityToken else {
+            print("Unable to fetch identity token.")
+            self.errorMessage = "无法获取 Apple ID Token。"
+            return
+        }
+        guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+            print("Unable to serialize token string from data: \(appleIDToken.debugDescription)")
+            self.errorMessage = "无法序列化 Apple ID Token。"
+            return
+        }
+
+        let credential = OAuthProvider.appleCredential(withIDToken: idTokenString,
+                                                       rawNonce: nonce,
+                                                       fullName: appleIDCredential.fullName)
+        self.isLoading = true
+        self.errorMessage = nil
+        Auth.auth().signIn(with: credential) { [weak self] (authResult, error) in
+            guard let self = self else { return }
+            if let error = error {
+                print("Error signing in with Apple: \(error.localizedDescription)")
+                self.errorMessage = "Apple 登录失败: \(error.localizedDescription)"
+                self.isLoading = false
+                return
+            }
+            
+            guard let firebaseUser = authResult?.user else {
+                print("Apple Sign In successful, but no user object returned.")
+                self.errorMessage = "Apple 登录成功但无法获取用户信息。"
+                self.isLoading = false
+                return
+            }
+            print("User signed in with Apple successfully. UID: \(firebaseUser.uid)")
+
+            // 检查 Firestore 中是否已存在该用户的 Profile
+            // 如果是首次通过 Apple 登录，需要创建新的 UserProfile
+            let userDocRef = self.db.collection("users").document(firebaseUser.uid)
+            userDocRef.getDocument { (document, error) in
+                if let document = document, document.exists {
+                    // Profile 已存在，AuthStateDidChangeListener 会处理加载
+                    print("Apple user profile already exists.")
+                    // self.isLoading 会在 listener 中被设为 false
+                } else {
+                    // Profile 不存在，创建新的
+                    print("Apple user profile does not exist. Creating new one.")
+                    let displayName = appleIDCredential.fullName?.givenName // 可能为空
+                    let email = appleIDCredential.email // 首次登录时可能有，后续可能为空
+                    
+                    let newUserProfile = UserProfile(
+                        uid: firebaseUser.uid,
+                        displayName: displayName,
+                        email: email,
+                        purchasedThemeIDs: Set(ThemeManager.defaultThemes.filter { !$0.isPremium }.map { $0.id }),
+                        registrationDate: Date()
+                    )
+                    self.updateUserProfileInFirestore(userProfile: newUserProfile)
+                    // self.isLoading 会在 listener 中被设为 false
+                }
+            }
+        }
+    }
+    
+    // 处理 Sign in with Apple 失败回调
+    func handleAppleSignInError(error: Error) {
+        print("Sign in with Apple failed: \(error.localizedDescription)")
+        self.errorMessage = "Apple 登录失败: \(error.localizedDescription)"
+        self.isLoading = false
+    }
+
+    // Helper for Sign in with Apple nonce
+    private func randomNonceString(length: Int = 32) -> String {
+        // ... (实现见 Firebase 文档或网络示例) ...
+        precondition(length > 0)
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+        while remainingLength > 0 {
+            let randoms: [UInt8] = (0 ..< 16).map { _ in
+                var random: UInt8 = 0
+                let errorCode = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if errorCode != errSecSuccess {
+                    fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+                }
+                return random
+            }
+            randoms.forEach { random in
+                if remainingLength == 0 { return }
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+        return result
+    }
+
+    private func sha256(_ input: String) -> String {
+        // ... (实现见 Firebase 文档或网络示例) ...
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        let hashString = hashedData.compactMap {
+            String(format: "%02x", $0)
+        }.joined()
+        return hashString
+    }
+    
+    // 新增：用于更新用户已购买的主题列表到 Firestore
+    func updateUserPurchasedThemes(themeIDs: Set<String>) {
+        guard let uid = currentUser?.uid else {
+            print("Cannot update purchased themes: User not logged in or UID missing.")
+            return
+        }
+        guard var updatedProfile = currentUser else { return } // 获取当前用户信息的副本
+        
+        updatedProfile.purchasedThemeIDs = themeIDs // 更新副本中的主题ID
+
+        db.collection("users").document(uid).updateData([
+            "purchasedThemeIDs": Array(themeIDs) // Firestore Set 通常存储为 Array
+        ]) { [weak self] error in
+            if let error = error {
+                print("Error updating purchased themes in Firestore: \(error.localizedDescription)")
+                self?.errorMessage = "更新已购主题失败: \(error.localizedDescription)"
+            } else {
+                print("Successfully updated purchased themes in Firestore for UID: \(uid)")
+                // 本地 currentUser 也需要更新，以确保 UI 立即响应
+                // AuthStateChangeListener 理论上不应该因为这个字段的更新而重新获取整个 profile，
+                // 所以这里手动更新本地副本。
+                self?.currentUser?.purchasedThemeIDs = themeIDs
+                self?.objectWillChange.send() // 手动通知 SwiftUI 视图更新
+            }
+        }
+    }
 }
+
+// 在 KlotskiApp.swift 中传递 window 给 AuthManager
+// KlotskiApp.swift
+// ...
+// .onReceive(NotificationCenter.default.publisher(for: UIWindow.didBecomeKeyNotification)) { notification in
+//     if let window = notification.object as? UIWindow {
+//         authManager.currentWindow = window
+//         print("AuthManager currentWindow set.")
+//     }
+// }
+// ...
 
 
 class SettingsManager: ObservableObject {
@@ -632,7 +1006,10 @@ class SettingsManager: ObservableObject {
             "resume": "Resume",
             "backToMenu": "Back to Menu",
             "victoryTitle": "Congratulations!",
-            "victoryMessage": "Level Cleared!"
+            "victoryMessage": "Level Cleared!",
+            "confirmPassword": "Confirm Password",
+            "passwordsDoNotMatch": "Passwords do not match!"
+
         ],
         "zh": [
             "gameTitle": "华容道",
@@ -674,6 +1051,8 @@ class SettingsManager: ObservableObject {
             "backToMenu": "返回主菜单",
             "victoryTitle": "恭喜获胜!",
             "victoryMessage": "成功过关!",
+            "confirmPassword": "确认密码",
+            "passwordsDoNotMatch": "两次输入的密码不一致！"
         ]
     ]
 

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import FirebaseFirestore
 
 // 新增：用于给 View 添加特定角圆角的扩展
 extension View {
@@ -260,12 +261,16 @@ extension Color {
 }
 
 
-struct UserProfile: Codable {
-    let uid: String
+struct UserProfile: Codable, Identifiable { // Identifiable 通常用于 SwiftUI 列表
+    @DocumentID var id: String? // Firestore 文档 ID，会自动映射
+    let uid: String // Firebase Auth 用户 UID，这将是 Firestore 文档的主要标识符
     var displayName: String?
     var email: String?
-    var purchasedThemeIDs: Set<String> = [] // Initialize as empty set
-    // Add other user-specific data
+    var purchasedThemeIDs: Set<String> = []
+    var registrationDate: Date? // 可选：记录用户注册时间
+
+    // 如果 id 是 nil (例如新创建的 UserProfile 还未存入 Firestore)，或者你想在 SwiftUI 中使用 uid 作为 Identifiable 的 id：
+    // var identifiableID: String { id ?? uid }
 }
 
 struct LeaderboardEntry: Identifiable {

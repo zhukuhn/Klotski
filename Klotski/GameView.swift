@@ -21,7 +21,7 @@ struct GameView: View {
     @State private var currentValidCumulativeGridOffset: CGSize = .zero
     @State private var dragSnapThresholdFactor: CGFloat = 0.2 // 拖动阈值
 
-    @State private var showLevelSelectionPanel = false
+    @State private var navigateToLevelSelection = false
     
     private let boardPadding: CGFloat = 10
     private let controlButtonSize: CGFloat = 44
@@ -51,11 +51,6 @@ struct GameView: View {
                     //.blur(radius: showLevelSelectionPanel || (gameManager.isPaused && !gameManager.isGameWon) ? 5 : 0) // 面板或暂停时模糊背景
                     //.allowsHitTesting(!(showLevelSelectionPanel || (gameManager.isPaused && !gameManager.isGameWon))) // 面板或暂停时禁用背景交互
 
-                // 从右侧滑出的关卡选择面板 (在暂停浮层之上)
-                if showLevelSelectionPanel {
-                    levelSelectionSidePanel(geometry: geometry)
-                        //.zIndex(4) // 比暂停浮层高，比胜利浮层低（如果胜利也需要显示）
-                }
             }
             .navigationTitle(gameManager.currentLevel?.name ?? settingsManager.localizedString(forKey: "gameTitle"))
             .navigationBarTitleDisplayMode(.inline)
@@ -64,6 +59,13 @@ struct GameView: View {
             .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
             .onAppear(perform: setupGameView)
             .onDisappear(perform: cleanupGameView)
+            .navigationDestination(isPresented: $navigateToLevelSelection) {
+                LevelSelectionView(
+                    isPresentedAsPanel: false, // 确保它被视为完整视图
+                    // dismissPanelAction 此处不需要，因为它不是面板
+                    onLevelSelected: { self.navigateToLevelSelection = false } // 用于关闭此视图的回调
+                )
+            }
         }
     }
 
@@ -116,47 +118,6 @@ struct GameView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
-    private func levelSelectionSidePanel(geometry: GeometryProxy) -> some View {
-        // ZStack 用于组合遮罩和面板本身
-        ZStack {
-            // 半透明遮罩层
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-                .onTapGesture { // 点击遮罩关闭面板
-                    withAnimation(.spring()) {
-                        showLevelSelectionPanel = false
-                        // 游戏应保持打开面板前的暂停状态，由用户通过游戏内按钮恢复
-                    }
-                }
-                .transition(.opacity) // 遮罩的淡入淡出
-
-            // 关卡选择面板视图
-            LevelSelectionView(
-                isPresentedAsPanel: true,
-                dismissPanelAction: {
-                    withAnimation(.spring()) {
-                        showLevelSelectionPanel = false
-                        // 如果从面板选择了新关卡，GameManager.startGame 会处理 isPaused 状态
-                        // 如果只是关闭面板，游戏应保持之前的暂停状态
-                        if gameManager.isGameActive && !gameManager.isGameWon && gameManager.isPaused {
-                             // 可选：如果希望关闭面板后自动继续游戏（如果之前是活跃的）
-                             // gameManager.resumeGame(settings: settingsManager)
-                        }
-                    }
-                }
-            )
-            .frame(width: min(geometry.size.width * panelWidthRatio, 400))
-            .background(
-                themeManager.currentTheme.backgroundColor.color // 使用主题背景色
-                    .overlay(.thinMaterial) // 添加一层薄材质效果，增加区分度
-            )
-            .cornerRadius(panelCornerRadius, corners: [.topLeft, .bottomLeft])
-            .shadow(color: .black.opacity(0.3), radius: 15, x: -5, y: 0)
-            .offset(x: geometry.size.width / 2 - (min(geometry.size.width * panelWidthRatio, 400) / 2) ) // 使面板从右侧滑入并靠右对齐
-            .transition(.move(edge: .trailing)) // 从右侧滑入/滑出动画
-        }
-    }
 
     func pieceDragGesture(piece: Piece, cellSize: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 5, coordinateSpace: .global)
@@ -266,46 +227,26 @@ struct GameView: View {
     @ViewBuilder 
     private var pauseOverlay: some View {
         VStack(spacing: 25) { 
-            Text(settingsManager.localizedString(forKey: "pause"))
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
+            
             Button(action: { 
                 SoundManager.playImpactHaptic(settings: settingsManager)
                 gameManager.resumeGame(settings: settingsManager) 
             }) { 
-                Label(
-                    settingsManager.localizedString(forKey: "resume"), systemImage: "play.fill"
-                )
-                .font(.headline)
-                .padding(.horizontal, 30)
-                .padding(.vertical, 15) 
+                Image(systemName: "play.rectangle.fill").resizable().scaledToFit()
             }
-            .buttonStyle(MenuButtonStyle(themeManager: themeManager))
-            
-            Button(action: { 
-                SoundManager.playImpactHaptic(settings: settingsManager)
-                gameManager.pauseGame()
-                gameManager.saveGame(settings: settingsManager)
-                gameManager.isGameActive = false
-                dismiss() 
-            }) { 
-                Label(
-                    settingsManager.localizedString(forKey: "backToMenu"), systemImage: "house.fill"
-                )
-                .font(.headline)
-                .padding(.horizontal, 30)
-                .padding(.vertical, 15) 
-            }
-            .buttonStyle(MenuButtonStyle(themeManager: themeManager))
+            .frame(width: controlButtonSize*5, height: controlButtonSize*5)
+            .foregroundColor(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
 
         }
-        .padding(EdgeInsets(top: 50, leading: 40, bottom: 50, trailing: 40))
-        .background(themeManager.currentTheme.backgroundColor.color.opacity(0.95).blur(radius: 5))
-        .cornerRadius(20)
-        .shadow(color: .black.opacity(0.4), radius: 15, x:0, y:8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.6).ignoresSafeArea())
-        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+        // .frame(width: controlButtonSize*3, height: controlButtonSize*3)
+        // .foregroundColor(themeManager.currentTheme.sliderColor.color)
+        // .padding(EdgeInsets(top: 50, leading: 40, bottom: 50, trailing: 40))
+        // .background(themeManager.currentTheme.backgroundColor.color.opacity(0.95).blur(radius: 5))
+        // .cornerRadius(20)
+        // .shadow(color: .black.opacity(0.4), radius: 15, x:0, y:8)
+        // .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // .background(Color.black.opacity(0.6).ignoresSafeArea())
+        // .transition(.opacity.combined(with: .scale(scale: 0.8)))
     }
 
     // 游戏信息 (当前时间、步数)
@@ -357,7 +298,7 @@ struct GameView: View {
             }) { 
                 Image(systemName: gameManager.isPaused ? "play.circle.fill" : "pause.circle.fill").resizable().scaledToFit() 
             }
-            .frame(width: controlButtonSize + 10, height: controlButtonSize + 10)
+            .frame(width: controlButtonSize * 2, height: controlButtonSize * 2)
             .foregroundColor(themeManager.currentTheme.sliderColor.color).disabled(gameManager.isGameWon)
 
             Button(action: { 
@@ -371,7 +312,7 @@ struct GameView: View {
             .frame(width: controlButtonSize, height: controlButtonSize)
             .foregroundColor(themeManager.currentTheme.sliderColor.color)
             .disabled(gameManager.currentLevelIndex == nil || gameManager.currentLevelIndex == gameManager.levels.count - 1 || gameManager.isPaused || gameManager.isGameWon)
-        }.padding(.bottom, 10)
+        }.padding(.top, 20)
     }
     // 菜单，重来，关卡
     private var gameMainControlsView: some View { 
@@ -406,17 +347,15 @@ struct GameView: View {
                     gameManager.pauseGame()
                 }
                 gameManager.saveGame(settings: settingsManager) // 打开面板前保存一下，确保状态最新
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { // 使用更平滑的动画
-                    showLevelSelectionPanel = true
-                }
+                self.navigateToLevelSelection = true
             }) {
                 Image(systemName: "list.bullet.circle.fill").resizable().scaledToFit()
             }
-            .frame(width: controlButtonSize+10, height: controlButtonSize+10)
+            .frame(width: controlButtonSize, height: controlButtonSize)
             .foregroundColor(themeManager.currentTheme.sliderColor.color)
     
             
-        }.padding(.bottom, 10)
+        }.padding(.top, 20)
     }
     
     @ToolbarContentBuilder 

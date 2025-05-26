@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F77484D72DDF06FC00BD61B6 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = F77484D62DDF06FC00BD61B6 /* FirebaseAnalytics */; };
+		F77484D92DDF06FC00BD61B6 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = F77484D82DDF06FC00BD61B6 /* FirebaseAuth */; };
+		F77484DB2DDF06FC00BD61B6 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = F77484DA2DDF06FC00BD61B6 /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F774C3EA2DD376FC00850422 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +58,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F77484D72DDF06FC00BD61B6 /* FirebaseAnalytics in Frameworks */,
+				F77484D92DDF06FC00BD61B6 /* FirebaseAuth in Frameworks */,
+				F77484DB2DDF06FC00BD61B6 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +121,9 @@
 			);
 			name = Klotski;
 			packageProductDependencies = (
+				F77484D62DDF06FC00BD61B6 /* FirebaseAnalytics */,
+				F77484D82DDF06FC00BD61B6 /* FirebaseAuth */,
+				F77484DA2DDF06FC00BD61B6 /* FirebaseFirestore */,
 			);
 			productName = Klotski;
 			productReference = F774C3D92DD376FA00850422 /* Klotski.app */;
@@ -195,6 +207,9 @@
 			);
 			mainGroup = F774C3D02DD376FA00850422;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F77484D52DDF06FC00BD61B6 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F774C3DA2DD376FA00850422 /* Products */;
 			projectDirPath = "";
@@ -410,7 +425,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shenlan.Klotski;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shenlan.klotski;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -440,7 +455,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shenlan.Klotski;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shenlan.klotski;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -560,6 +575,35 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F77484D52DDF06FC00BD61B6 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.13.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F77484D62DDF06FC00BD61B6 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F77484D52DDF06FC00BD61B6 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		F77484D82DDF06FC00BD61B6 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F77484D52DDF06FC00BD61B6 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		F77484DA2DDF06FC00BD61B6 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F77484D52DDF06FC00BD61B6 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F774C3D12DD376FA00850422 /* Project object */;
 }
