@@ -26,7 +26,7 @@ struct KlotskiApp: App {
         _authManager = StateObject(wrappedValue: authMgr)
         _themeManager = StateObject(wrappedValue: ThemeManager(authManager: authMgr)) // ThemeManager depends on AuthManager
         
-        print("All managers initialized in KlotskiApp init!")
+        //print("All managers initialized in KlotskiApp init!")
     }
 
     // MARK: - Body (场景定义)
