@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import FirebaseFirestore
+import CloudKit
 
 // 新增：用于给 View 添加特定角圆角的扩展
 extension View {
@@ -104,6 +104,9 @@ struct Level: Identifiable, Codable {
     var bestMoves: Int?
     var bestTime: TimeInterval?
     var isUnlocked: Bool = true // Or based on game progression
+
+    // [NEW] Placeholder for CKRecord system fields if needed for caching or optimistic updates.
+    var recordChangeTag: String?
 }
 
 // 用于表示 SwiftUI.ColorScheme 的自定义 Codable 枚举
@@ -178,16 +181,32 @@ struct Theme: Identifiable, Codable, Equatable {
     
     static func == (lhs: Theme, rhs: Theme) -> Bool {
         lhs.id == rhs.id
-//        lhs.name == rhs.name &&
-//        lhs.isPremium == rhs.isPremium &&
-//        lhs.price == rhs.price &&
-//        lhs.backgroundColor == rhs.backgroundColor &&
-//        lhs.sliderColor == rhs.sliderColor &&
-//        lhs.sliderShape == rhs.sliderShape &&
-//        lhs.sliderContent == rhs.sliderContent &&
-//        lhs.fontName == rhs.fontName &&
-//        lhs.codableColorScheme == rhs.codableColorScheme // 比较可编码的表示
     }
+}
+
+struct AppThemeRepository {
+    static let allThemes: [Theme] = [
+        Theme(id: "default", name: "默认浅色", isPremium: false,
+              backgroundColor: CodableColor(color: .white),
+              sliderColor: CodableColor(color: .blue), sliderTextColor: CodableColor(color: .white),
+              boardBackgroundColor: CodableColor(color: Color(white: 0.9)), boardGridLineColor: CodableColor(color: Color(white: 0.7)),
+              fontName: nil, colorScheme: .light),
+        Theme(id: "dark", name: "深邃夜空", isPremium: false,
+              backgroundColor: CodableColor(color: .black),
+              sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
+              boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
+              fontName: nil, colorScheme: .dark),
+        Theme(id: "forest", name: "森林绿意", isPremium: true, price: 6.00,
+              backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
+              sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
+              boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
+              fontName: "Georgia", colorScheme: .light),
+        Theme(id: "ocean", name: "蔚蓝海洋", isPremium: true, price: 6.00,
+              backgroundColor: CodableColor(color: Color(red: 86/255, green: 207/255, blue: 225/255)),
+              sliderColor: CodableColor(color: Color(red: 78/255, green: 168/255, blue: 222/255)), sliderTextColor: CodableColor(color: .white),
+              boardBackgroundColor: CodableColor(color: Color(red: 180/255, green: 225/255, blue: 235/255)), boardGridLineColor: CodableColor(color: Color(red: 100/255, green: 150/255, blue: 180/255)),
+              fontName: "HelveticaNeue-Light", colorScheme: .light)
+    ]
 }
 
 enum SliderShape: String, Codable, CaseIterable {
@@ -261,16 +280,103 @@ extension Color {
 }
 
 
-struct UserProfile: Codable, Identifiable { // Identifiable 通常用于 SwiftUI 列表
-    @DocumentID var id: String? // Firestore 文档 ID，会自动映射
-    let uid: String // Firebase Auth 用户 UID，这将是 Firestore 文档的主要标识符
+// --- UserProfile 修改 ---
+struct UserProfile: Identifiable, Codable {
+    var id: String // 应用生成的 UUID，将用作 UserProfile CKRecord 的 recordName
+    var iCloudUserRecordName: String // 存储从 fetchUserRecordID() 获取的 recordName (例如 "_xxxx...")
+    
     var displayName: String?
-    var email: String?
+    var email: String? // 注意：CloudKit 仅在用户同意且应用请求发现权限时才提供
     var purchasedThemeIDs: Set<String> = []
-    var registrationDate: Date? // 可选：记录用户注册时间
+    var registrationDate: Date?
 
-    // 如果 id 是 nil (例如新创建的 UserProfile 还未存入 Firestore)，或者你想在 SwiftUI 中使用 uid 作为 Identifiable 的 id：
-    // var identifiableID: String { id ?? uid }
+    // 用于 CloudKit 记录的更改标记 (可选，用于高级同步和冲突解决)
+    var recordChangeTag: String?
+
+    // 默认初始化器，确保 id 是唯一的
+    init(id: String = UUID().uuidString, // 自动生成 UUID 作为 id
+         iCloudUserRecordName: String,
+         displayName: String? = nil,
+         email: String? = nil,
+         purchasedThemeIDs: Set<String> = [],
+         registrationDate: Date? = Date(), // 默认为当前日期
+         recordChangeTag: String? = nil) {
+        self.id = id
+        self.iCloudUserRecordName = iCloudUserRecordName
+        self.displayName = displayName
+        self.email = email
+        self.purchasedThemeIDs = purchasedThemeIDs
+        self.registrationDate = registrationDate
+        self.recordChangeTag = recordChangeTag
+    }
+}
+
+// --- UserProfile 与 CKRecord 的转换辅助方法 ---
+extension UserProfile {
+    init?(from record: CKRecord) {
+        guard record.recordType == AuthManager.userProfileRecordType else {
+            print("UserProfile init(from record): 记录类型不正确。预期为 '\(AuthManager.userProfileRecordType)'，实际为 '\(record.recordType)'")
+            return nil
+        }
+        
+        self.id = record.recordID.recordName
+        
+        guard let iCloudUserRecordName = record["iCloudUserRecordName"] as? String else {
+            print("UserProfile init(from record): 缺少 'iCloudUserRecordName' 字段或类型不匹配。")
+            return nil
+        }
+        self.iCloudUserRecordName = iCloudUserRecordName
+        
+        self.displayName = record["displayName"] as? String
+        self.email = record["email"] as? String
+        
+        if let purchasedIDsArray = record["purchasedThemeIDs"] as? [String] {
+            self.purchasedThemeIDs = Set(purchasedIDsArray)
+        } else {
+            self.purchasedThemeIDs = Set(AppThemeRepository.allThemes.filter { !$0.isPremium }.map { $0.id })
+        }
+        
+        self.registrationDate = record["registrationDate"] as? Date ?? record.creationDate
+        self.recordChangeTag = record.recordChangeTag
+    }
+
+    /// 将此 UserProfile 实例转换为 CKRecord 以便保存或更新。
+    /// - Parameter existingRecord: 如果是更新操作，则传入已存在的 CKRecord，否则将创建一个新的。
+    /// - Returns: 配置好的 CKRecord。
+    func toCKRecord(existingRecord: CKRecord? = nil) -> CKRecord {
+        let recordToUse: CKRecord // 用于最终操作的记录
+
+        if let existing = existingRecord {
+            // 如果提供了 existingRecord，验证它是否与当前 UserProfile 匹配
+            if existing.recordID.recordName == self.id && existing.recordType == AuthManager.userProfileRecordType {
+                // 匹配成功，使用此 existingRecord 进行更新
+                recordToUse = existing
+            } else {
+                // 不匹配，打印错误信息，并创建一个全新的 CKRecord
+                print("UserProfile toCKRecord: 严重错误 - 提供的 existingRecord (id: \(existing.recordID.recordName), type: \(existing.recordType)) 与 UserProfile (id: \(self.id)) 不匹配。将创建一个新记录。")
+                let newRecordID = CKRecord.ID(recordName: self.id) // 使用 UserProfile.id 作为新记录的名称
+                recordToUse = CKRecord(recordType: AuthManager.userProfileRecordType, recordID: newRecordID)
+            }
+        } else {
+            // 没有提供 existingRecord，创建一个全新的 CKRecord
+            let newRecordID = CKRecord.ID(recordName: self.id) // 使用 UserProfile.id 作为新记录的名称
+            recordToUse = CKRecord(recordType: AuthManager.userProfileRecordType, recordID: newRecordID)
+        }
+
+        // 在选定的 recordToUse (无论是旧的还是新的) 上设置或更新字段值
+        recordToUse["iCloudUserRecordName"] = self.iCloudUserRecordName as CKRecordValue
+        recordToUse["displayName"] = self.displayName as CKRecordValue?
+        recordToUse["email"] = self.email as CKRecordValue?
+        recordToUse["purchasedThemeIDs"] = Array(self.purchasedThemeIDs) as CKRecordValue
+        recordToUse["registrationDate"] = self.registrationDate as CKRecordValue?
+        
+        // 注意：我们不在这里手动设置 recordChangeTag。
+        // 如果 recordToUse 是一个从服务器获取的 existingRecord，它会带有服务器提供的 changeTag。
+        // CloudKit 在保存时会使用这个 changeTag 来进行冲突检测。
+        // 保存成功后，服务器会返回一个新的 changeTag，我们的 UserProfile.recordChangeTag 应该用那个新的值更新。
+
+        return recordToUse
+    }
 }
 
 struct LeaderboardEntry: Identifiable {
@@ -279,5 +385,39 @@ struct LeaderboardEntry: Identifiable {
     var playerName: String
     var moves: Int
     var levelID: String // To associate entry with a specific level
+    // [NEW] If storing on CloudKit, might add:
+    // var userRecordName: String? // To link to a UserProfile if needed
+    // var recordChangeTag: String?
 }
 
+// [NEW] Potential structure for game save data in CloudKit
+struct GameSave: Identifiable {
+    var id: String // Typically CKRecord.recordID.recordName
+    var levelID: String
+    var moves: Int
+    var timeElapsed: TimeInterval
+    var piecesData: Data // Serialized 'Piece' array
+    var lastModified: Date
+
+    // [NEW] Placeholder for CKRecord system fields
+    // var encodedSystemFields: Data?
+
+    // Example Initializer from CKRecord (will be refined in GameManager)
+    // init?(from record: CKRecord) {
+    //     guard record.recordType == "GameSave" else { return nil }
+    //     self.id = record.recordID.recordName
+    //     guard let levelID = record["levelID"] as? String,
+    //           let moves = record["moves"] as? Int,
+    //           let timeElapsed = record["timeElapsed"] as? TimeInterval,
+    //           let piecesData = record["piecesData"] as? Data, // Or CKAsset
+    //           let lastModified = record.modificationDate else { // CloudKit provides modificationDate
+    //         return nil
+    //     }
+    //     self.levelID = levelID
+    //     self.moves = moves
+    //     self.timeElapsed = timeElapsed
+    //     self.piecesData = piecesData
+    //     self.lastModified = lastModified
+    //     // self.encodedSystemFields = record.encodedSystemFields
+    // }
+}

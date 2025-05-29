@@ -86,58 +86,58 @@ struct MainMenuView: View {
                 Spacer() 
 
                 // 认证状态视图 (登录/注册/注销按钮)
-                authStatusView().padding(.bottom)
+                //authStatusView().padding(.bottom)
 
             }
            .frame(maxWidth: .infinity, maxHeight: .infinity) 
            .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea()) 
-           .sheet(isPresented: $showingLoginSheet) { LoginView() }
-           .sheet(isPresented: $showingRegisterSheet) { RegisterView() }
+//           .sheet(isPresented: $showingLoginSheet) { LoginView() }
+//           .sheet(isPresented: $showingRegisterSheet) { RegisterView() }
            .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
-           .onAppear {
-               print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)")
-               print("MainMenuView onAppear: authManager.isLoggedIn = \(authManager.isLoggedIn), isLoading = \(authManager.isLoading)")
-           }
+//           .onAppear {
+//               print("MainMenuView onAppear: gameManager.hasSavedGame = \(gameManager.hasSavedGame)")
+//               print("MainMenuView onAppear: authManager.isLoggedIn = \(authManager.isLoggedIn), isLoading = \(authManager.isLoading)")
+//           }
         }
         .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
     }
     
-    @ViewBuilder
-    private func authStatusView() -> some View {
-        VStack {
-            if authManager.isLoading && !authManager.isLoggedIn { // 正在加载认证状态且尚未登录
-                ProgressView()
-                    .padding(.bottom, 10)
-            } else if authManager.isLoggedIn, let user = authManager.currentUser {
-                Text("\(settingsManager.localizedString(forKey: "loggedInAs")) \(user.displayName ?? user.email ?? "User")")
-                   .font(.caption)
-                   .foregroundColor(themeManager.currentTheme.sliderColor.color)
-                   .padding(.bottom, 5)
-                Button(settingsManager.localizedString(forKey: "logout")) {
-                    SoundManager.playImpactHaptic(settings: settingsManager)
-                    authManager.logout()
-                }
-               .buttonStyle(.bordered) 
-               .tint(themeManager.currentTheme.sliderColor.color)
-            } else {
-                HStack(spacing: 15) {
-                    Button(settingsManager.localizedString(forKey: "login")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        showingLoginSheet = true 
-                    }
-                   .buttonStyle(.borderedProminent) 
-                   .tint(themeManager.currentTheme.sliderColor.color)
-                    
-                    Button(settingsManager.localizedString(forKey: "register")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        showingRegisterSheet = true 
-                    }
-                   .buttonStyle(.bordered) 
-                   .tint(themeManager.currentTheme.sliderColor.color)
-                }
-            }
-        }
-    }
+//    @ViewBuilder
+//    private func authStatusView() -> some View {
+//        VStack {
+//            if authManager.isLoading && !authManager.isLoggedIn { // 正在加载认证状态且尚未登录
+//                ProgressView()
+//                    .padding(.bottom, 10)
+//            } else if authManager.isLoggedIn, let user = authManager.currentUser {
+//                Text("\(settingsManager.localizedString(forKey: "loggedInAs")) \(user.displayName ?? user.email ?? "User")")
+//                   .font(.caption)
+//                   .foregroundColor(themeManager.currentTheme.sliderColor.color)
+//                   .padding(.bottom, 5)
+//                Button(settingsManager.localizedString(forKey: "logout")) {
+//                    SoundManager.playImpactHaptic(settings: settingsManager)
+//                    //authManager.logout()
+//                }
+//               .buttonStyle(.bordered) 
+//               .tint(themeManager.currentTheme.sliderColor.color)
+//            } else {
+//                HStack(spacing: 15) {
+//                    Button(settingsManager.localizedString(forKey: "login")) {
+//                        SoundManager.playImpactHaptic(settings: settingsManager)
+//                        showingLoginSheet = true 
+//                    }
+//                   .buttonStyle(.borderedProminent) 
+//                   .tint(themeManager.currentTheme.sliderColor.color)
+//                    
+//                    Button(settingsManager.localizedString(forKey: "register")) {
+//                        SoundManager.playImpactHaptic(settings: settingsManager)
+//                        showingRegisterSheet = true 
+//                    }
+//                   .buttonStyle(.bordered) 
+//                   .tint(themeManager.currentTheme.sliderColor.color)
+//                }
+//            }
+//        }
+//    }
 }
 
 // MARK: 菜单按钮
@@ -330,6 +330,7 @@ struct ThemeSelectionView: View {
                     //        themeManager.themePurchased(themeID: id, authManager: authManager)
                     //    }
                     // }
+                    themeManager.themeDidGetPurchased(themeID: theme.id, authManager: authManager)
                     print("购买主题 '\(theme.name)' 按钮被点击 (功能待StoreKit集成)")
                     // Simulate purchase for testing UI, if needed, directly calling themePurchased
                     // themeManager.themePurchased(themeID: theme.id, authManager: authManager) // Uncomment for UI testing of purchase flow
