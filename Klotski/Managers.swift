@@ -335,15 +335,20 @@ class GameManager: ObservableObject {
         self.currentLevelIndex = savedLevelIndex // 设置当前关卡索引
         self.moves = UserDefaults.standard.integer(forKey: savedMovesKey)
         self.timeElapsed = UserDefaults.standard.double(forKey: savedTimeKey)
+        // Load pause state
+        self.isPaused = UserDefaults.standard.bool(forKey: savedIsPausedKey)
+
 
         if let savedPiecesData = UserDefaults.standard.data(forKey: savedPiecesKey) {
             do {
                 self.pieces = try JSONDecoder().decode([Piece].self, from: savedPiecesData)
                 rebuildGameBoard()
                 self.isGameActive = true; self.isGameWon = false
-                print("继续游戏: \(levelToContinue.name) (索引: \(savedLevelIndex)), 棋子状态已加载。")
+                print("继续游戏: \(levelToContinue.name) (索引: \(savedLevelIndex)), 棋子状态已加载, isPaused: \(self.isPaused)")
                 SoundManager.playImpactHaptic(settings: settings)
                 if !self.isPaused && !self.isGameWon { startTimer() } // 如果不是暂停状态且未胜利，则启动计时器
+                else { stopTimer() } // Ensure timer is stopped if paused or won
+                
                 if let targetPiece = pieces.first(where: {$0.id == levelToContinue.targetPieceId}) {
                      checkWinCondition(movedPiece: targetPiece, settings: settings)
                  }
@@ -370,12 +375,12 @@ class GameManager: ObservableObject {
         UserDefaults.standard.set(currentIndex, forKey: savedLevelIndexKey)
         UserDefaults.standard.set(moves, forKey: savedMovesKey)
         UserDefaults.standard.set(timeElapsed, forKey: savedTimeKey)
-        UserDefaults.standard.set(isPaused, forKey: savedIsPausedKey)
+        UserDefaults.standard.set(isPaused, forKey: savedIsPausedKey) // Save pause state
         do {
             let encodedPieces = try JSONEncoder().encode(pieces)
             UserDefaults.standard.set(encodedPieces, forKey: savedPiecesKey)
             hasSavedGame = true // 关键：这会使“继续游戏”按钮出现
-            print("游戏已保存: \(currentLevel.name), 步数: \(moves)。hasSavedGame = \(hasSavedGame)")
+            print("游戏已保存: \(currentLevel.name), 步数: \(moves), isPaused: \(isPaused)。hasSavedGame = \(hasSavedGame)")
         } catch {
             print("错误：无法编码并保存棋子状态: \(error)")
             hasSavedGame = false // 如果棋子无法保存，则存档不完整
@@ -388,7 +393,7 @@ class GameManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: savedMovesKey)
         UserDefaults.standard.removeObject(forKey: savedTimeKey)
         UserDefaults.standard.removeObject(forKey: savedPiecesKey) // Clear saved pieces
-        UserDefaults.standard.removeObject(forKey: savedIsPausedKey)
+        UserDefaults.standard.removeObject(forKey: savedIsPausedKey) // Clear saved pause state
         hasSavedGame = false
         print("已清除已保存的游戏及棋子状态")
     }
@@ -427,110 +432,187 @@ class ThemeManager: ObservableObject {
     // MARK: - Private Properties
     private var cancellables = Set<AnyCancellable>()
     private let currentThemeIDKey = "currentThemeID"
+    private let locallyKnownPaidThemeIDsKey = "locallyKnownPaidThemeIDs"
+    private let settingsManagerInstance: SettingsManager 
+    private var initialAuthCheckCompleted = false // Flag to manage initial auth sync
 
     // MARK: - Initialization
-    init(authManager: AuthManager, availableThemes: [Theme] = AppThemeRepository.allThemes) { // 传入可用主题列表
-        self.themes = availableThemes // 使用传入的主题列表
-        let fallback = Theme(id: "fallback", name: "备用", isPremium: false, backgroundColor: CodableColor(color: .gray), sliderColor: CodableColor(color: .secondary), sliderTextColor: CodableColor(color: .black), boardBackgroundColor: CodableColor(color: .white), boardGridLineColor: CodableColor(color: Color(.systemGray)))
-        self.currentTheme = fallback // 'currentTheme' 在此初始化 (备用情况)
+    init(authManager: AuthManager, settingsManager: SettingsManager, availableThemes: [Theme] = AppThemeRepository.allThemes) {
+        self.settingsManagerInstance = settingsManager
+        self.themes = availableThemes
         
-        // 1. 初始化 purchasedThemeIDs (首先包含所有免费主题)
-        var initialPurchasedIDs = Set(availableThemes.filter { !$0.isPremium }.map { $0.id })
-
-        // 2. 如果 AuthManager 已有 currentUser，则合并其 purchasedThemeIDs
-        if let userProfile = authManager.currentUser {
-            initialPurchasedIDs.formUnion(userProfile.purchasedThemeIDs)
-            print("ThemeManager init: Initial purchased IDs from self.purchasedThemeIDs: \(initialPurchasedIDs)")
-        }else{
-            print("ThemeManager init: AuthManager has not currentUser")
-        }
-        self.purchasedThemeIDs = initialPurchasedIDs // 'purchasedThemeIDs' 在此初始化
-        // print("ThemeManager init: Initial purchased IDs from self.purchasedThemeIDs: \(self.purchasedThemeIDs)")
-
-        // 3. 初始化 currentTheme (基于 UserDefaults 和已购买状态)
-        // 必须在 'purchasedThemeIDs' 初始化之后，并且在 'currentTheme' 赋值之前完成此逻辑
-        let savedThemeID = UserDefaults.standard.string(forKey: self.currentThemeIDKey)
-        var themeToSetAsCurrent: Theme? = nil
-
-        if let themeID = savedThemeID,
-           let savedThemeCandidate = self.themes.first(where: { $0.id == themeID }) {
-            // [FIXED] 内联检查逻辑，避免在 self 完全初始化前调用实例方法
-            if !savedThemeCandidate.isPremium || self.purchasedThemeIDs.contains(savedThemeCandidate.id) {
-                themeToSetAsCurrent = savedThemeCandidate
-            } else {
-                print("ThemeManager init: Saved theme '\(savedThemeCandidate.name)' is no longer purchased. Will use default.")
-            }
-        }
+        let fallbackTheme = Theme(id: "fallback", name: "备用", isPremium: false, backgroundColor: CodableColor(color: .gray), sliderColor: CodableColor(color: .secondary), sliderTextColor: CodableColor(color: .black), boardBackgroundColor: CodableColor(color: .white), boardGridLineColor: CodableColor(color: Color(.systemGray)))
+        let defaultTheme = availableThemes.first(where: { $0.id == "default" }) ?? fallbackTheme
+        self._currentTheme = Published(initialValue: defaultTheme) // Start with a sensible default
         
+        var tempPurchasedIDs = Set(availableThemes.filter { !$0.isPremium }.map { $0.id })
+        let localPaidIDsArray = UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? []
+        tempPurchasedIDs.formUnion(Set(localPaidIDsArray))
+        self._purchasedThemeIDs = Published(initialValue: tempPurchasedIDs)
+
+        print("ThemeManager init: Initial purchasedThemeIDs (free + local): \(self.purchasedThemeIDs)")
         
+        // Attempt to set current theme based on saved ID and current knowledge of purchases
+        // This will be re-evaluated if auth state changes.
+        trySetInitialCurrentTheme(authManager: authManager)
 
-        // 'currentTheme' 在此初始化
-        if let theme = themeToSetAsCurrent {
-            self.currentTheme = theme
-            print("ThemeManager init: currentTheme.id is \(theme.id)")
-        } else if let defaultLightTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first {
-            self.currentTheme = defaultLightTheme
-            // 如果之前有保存但无效，或从未保存过，则更新/保存 UserDefaults
-            if (savedThemeID != nil && self.currentTheme.id != savedThemeID) || savedThemeID == nil {
-                UserDefaults.standard.set(self.currentTheme.id, forKey: self.currentThemeIDKey)
-                print("ThemeManager init: Saved theme was invalid or nil. Set current theme to '\(self.currentTheme.name)' and updated UserDefaults.")
-            }
-        } else {
-            print("ThemeManager WARNING: Initialized with a fallback theme. Check AppThemeRepository.allThemes and loading logic.")
-        }
-        if let userProfile = authManager.currentUser {
-            //initialPurchasedIDs.formUnion(userProfile.purchasedThemeIDs)
-            print("ThemeManager init: Initial purchased IDs from self.purchasedThemeIDs: \(initialPurchasedIDs)")
-        }else{
-            print("ThemeManager init: AuthManager has not currentUser")
-        }
-        // print("ThemeManager init: Final current theme set to '\(self.currentTheme.name)'.")
-
-        // 4. 订阅 AuthManager 的 currentUser 变化 (现在 self 已完全初始化)
         authManager.$currentUser
             .receive(on: DispatchQueue.main)
             .sink { [weak self] userProfile in
                 guard let self = self else { return }
-                // print("ThemeManager: AuthManager.currentUser did change. Profile ID: \(userProfile?.id ?? "nil")")
-                
-                var newPurchasedIDs = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
-                if let profile = userProfile {
-                    newPurchasedIDs.formUnion(profile.purchasedThemeIDs)
-                }
-                
-                if self.purchasedThemeIDs != newPurchasedIDs {
-                    self.purchasedThemeIDs = newPurchasedIDs
-                    print("ThemeManager: purchasedThemeIDs updated from AuthManager: \(self.purchasedThemeIDs)")
-                    
-                    if !self.isThemePurchased(self.currentTheme) { // 现在可以安全调用实例方法
-                        if let defaultTheme = self.themes.first(where: { $0.id == "default"}) ?? self.themes.first {
-                            self.setCurrentTheme(defaultTheme)
-                            print("ThemeManager: Current theme ('\(self.currentTheme.name)') was no longer purchased after auth change, reset to default theme ('\(defaultTheme.name)').")
-                        }
-                    }
-                }
+                print("ThemeManager: AuthManager.currentUser changed (is now \(userProfile == nil ? "nil" : "available")).")
+                self.initialAuthCheckCompleted = true 
+                self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
             }
             .store(in: &cancellables)
+        
+        settingsManagerInstance.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                let iCloudSettingChanged = self.settingsManagerInstance.useiCloudLogin // Get current value
+                print("ThemeManager: SettingsManager's useiCloudLogin might have changed to \(iCloudSettingChanged).")
+                self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
+            }
+            .store(in: &cancellables)
+
+        // If authManager.currentUser is already available at the end of init,
+        // ensure the theme state is fully up-to-date.
+        if authManager.currentUser != nil && !self.initialAuthCheckCompleted {
+            print("ThemeManager init: currentUser available immediately. Triggering initial full rebuild and theme refresh.")
+            self.initialAuthCheckCompleted = true
+            self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
+        } else if authManager.currentUser == nil {
+             self.initialAuthCheckCompleted = false // Ensure sink will run fully first time
+        }
+        print("ThemeManager init: Fully initialized. Current theme: \(self.currentTheme.name)")
     }
 
-    // MARK: - Public Methods
+    private func trySetInitialCurrentTheme(authManager: AuthManager) {
+        let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
+        var themeToSet: Theme? = nil
 
+        if let themeID = savedThemeID, let candidate = themes.first(where: { $0.id == themeID }) {
+            // Build a temporary complete set of purchased IDs for this initial check
+            var currentKnownPurchases = self.purchasedThemeIDs // (free + local)
+            if settingsManagerInstance.useiCloudLogin, let user = authManager.currentUser {
+                currentKnownPurchases.formUnion(user.purchasedThemeIDs)
+            }
+
+            if !candidate.isPremium || currentKnownPurchases.contains(candidate.id) {
+                themeToSet = candidate
+                print("ThemeManager trySetInitialCurrentTheme: Setting to saved theme '\(candidate.name)' based on current knowledge.")
+            } else {
+                print("ThemeManager trySetInitialCurrentTheme: Saved theme '\(candidate.name)' not considered purchased with current knowledge. Will use default.")
+            }
+        } else {
+            print("ThemeManager trySetInitialCurrentTheme: No valid saved theme ID. Will use default.")
+        }
+        
+        let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
+        self.currentTheme = themeToSet ?? defaultTheme
+
+        // Ensure UserDefaults reflects the chosen theme, even if it's the default.
+        // This is important if savedThemeID was invalid and we fell back to default.
+        if UserDefaults.standard.string(forKey: currentThemeIDKey) != self.currentTheme.id {
+             UserDefaults.standard.set(self.currentTheme.id, forKey: currentThemeIDKey)
+             print("ThemeManager trySetInitialCurrentTheme: Updated UserDefaults for currentThemeID to '\(self.currentTheme.id)'")
+        }
+        print("ThemeManager trySetInitialCurrentTheme: Final initial current theme: \(self.currentTheme.name)")
+    }
+
+    private func rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: AuthManager) {
+        var newPurchased = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
+        let localPaidIDsArray = UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? []
+        newPurchased.formUnion(Set(localPaidIDsArray))
+
+        if self.settingsManagerInstance.useiCloudLogin, let userProfile = authManager.currentUser {
+            newPurchased.formUnion(userProfile.purchasedThemeIDs)
+            let newCloudThemes = userProfile.purchasedThemeIDs.subtracting(Set(localPaidIDsArray))
+            if !newCloudThemes.isEmpty {
+                var updatedLocalPaidIDs = Set(localPaidIDsArray)
+                updatedLocalPaidIDs.formUnion(newCloudThemes)
+                UserDefaults.standard.set(Array(updatedLocalPaidIDs), forKey: locallyKnownPaidThemeIDsKey)
+                print("ThemeManager rebuild: Synced new paid themes from CloudKit to local cache: \(newCloudThemes)")
+            }
+        }
+        
+        if self.purchasedThemeIDs != newPurchased {
+            self.purchasedThemeIDs = newPurchased
+            print("ThemeManager: purchasedThemeIDs rebuilt. New set: \(self.purchasedThemeIDs)")
+        }
+
+        // After purchased IDs are updated, try to apply the saved theme preference or default
+        let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
+        var themeToRestore: Theme? = nil
+
+        if let themeID = savedThemeID, let candidate = themes.first(where: { $0.id == themeID }) {
+            if self.isThemePurchased(candidate) { // Check with NEWLY built purchasedThemeIDs
+                themeToRestore = candidate
+            }
+        }
+
+        let themeToActuallySet: Theme
+        if let validRestoredTheme = themeToRestore {
+            themeToActuallySet = validRestoredTheme
+            if self.currentTheme.id != themeToActuallySet.id {
+                 print("ThemeManager rebuild: Restoring saved theme '\(themeToActuallySet.name)' as it's now purchased.")
+            } else {
+                 print("ThemeManager rebuild: Saved theme '\(themeToActuallySet.name)' is already current and purchased.")
+            }
+        } else {
+            let defaultThemeToSet = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
+            themeToActuallySet = defaultThemeToSet
+            if self.currentTheme.id != themeToActuallySet.id {
+                 print("ThemeManager rebuild: Saved theme not restorable or current theme '\(self.currentTheme.name)' no longer purchased. Reverting to default '\(themeToActuallySet.name)'.")
+            } else if let unwrappedSavedThemeID = savedThemeID, unwrappedSavedThemeID != defaultThemeToSet.id { // If a different theme was saved but is no longer valid
+                 print("ThemeManager rebuild: Previously saved theme '\(savedThemeID!)' is no longer valid. Reverting to default '\(defaultThemeToSet.name)'.")
+            }
+        }
+        
+        // Crucially, call setCurrentTheme to update the @Published currentTheme and persist to UserDefaults
+        self.setCurrentTheme(themeToActuallySet)
+    }
+
+
+    // MARK: - Public Methods
     func setCurrentTheme(_ theme: Theme) {
-        guard themes.contains(where: { $0.id == theme.id }), isThemePurchased(theme) else {
-            print("ThemeManager: Attempted to set an invalid or unpurchased theme ('\(theme.name)').")
-            if let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first, isThemePurchased(defaultTheme) {
-                 if currentTheme.id != defaultTheme.id {
-                    currentTheme = defaultTheme
-                    UserDefaults.standard.set(defaultTheme.id, forKey: currentThemeIDKey)
-                    print("ThemeManager: Fallback to default theme ('\(defaultTheme.name)') as '\(theme.name)' was invalid/unpurchased.")
-                 }
+        guard themes.contains(where: { $0.id == theme.id }) else {
+            print("ThemeManager: Attempted to set an unknown theme ('\(theme.name)'). Ignoring.")
+            return
+        }
+
+        // Check if the theme can be applied based on purchase status and iCloud setting for paid themes
+        let canApply: Bool
+        if theme.isPremium {
+            // Paid themes can only be applied if they are in purchasedThemeIDs AND (if iCloud is the mechanism for purchase) iCloud is enabled.
+            // The isThemePurchased() already covers the "is it in purchasedThemeIDs" part.
+            // The additional constraint from the user was: "不使用icloud登录则无法购买和应用付费主题"
+            // So, for paid themes, settingsManagerInstance.useiCloudLogin must be true to apply.
+            // However, our current isThemePurchased already reflects a combination of local and cloud.
+            // The critical part is that `purchasedThemeIDs` is built correctly.
+            // If iCloud is off, `purchasedThemeIDs` won't have cloud-only themes.
+            // If a theme is in `purchasedThemeIDs` (meaning it's free, or local_paid, or cloud_paid_and_icloud_on), it should be settable.
+            canApply = self.isThemePurchased(theme)
+        } else {
+            canApply = true // Free themes can always be applied
+        }
+
+        guard canApply else {
+            print("ThemeManager setCurrentTheme: Cannot apply theme '\(theme.name)'. It's premium and not considered purchased/accessible under current settings. (iCloud: \(settingsManagerInstance.useiCloudLogin), Purchased: \(purchasedThemeIDs.contains(theme.id)))")
+            // If an invalid theme was attempted, and it's not already the default, revert to default.
+            let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
+            if self.currentTheme.id != defaultTheme.id {
+                self.currentTheme = defaultTheme // Update @Published property
+                UserDefaults.standard.set(defaultTheme.id, forKey: currentThemeIDKey) // Persist
+                print("ThemeManager setCurrentTheme: Reverted to default theme '\(defaultTheme.name)'.")
             }
             return
         }
 
         if currentTheme.id != theme.id {
-            currentTheme = theme
-            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey)
+            currentTheme = theme // Update @Published property
+            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey) // Persist
             print("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
         }
     }
@@ -540,37 +622,58 @@ class ThemeManager: ObservableObject {
     }
 
     func themeDidGetPurchased(themeID: String, authManager: AuthManager) {
+        guard settingsManagerInstance.useiCloudLogin else {
+            print("ThemeManager: Purchase attempt for '\(themeID)' while iCloud login is disabled. Purchase flow should be blocked by UI.")
+            // Potentially show an alert to the user here if this is somehow reached.
+            return
+        }
         guard let purchasedThemeObject = themes.first(where: { $0.id == themeID && $0.isPremium }) else {
             print("ThemeManager: Attempted to mark non-existent or free theme ID '\(themeID)' as purchased. Ignoring.")
             return
         }
 
-        if purchasedThemeIDs.insert(themeID).inserted {
-            print("ThemeManager: Theme ID '\(themeID)' successfully marked as purchased locally.")
-            authManager.updateUserPurchasedThemes(themeIDs: purchasedThemeIDs)
-            setCurrentTheme(purchasedThemeObject)
-        } else {
-            print("ThemeManager: Theme ID '\(themeID)' was already in purchased set.")
+        var localPaidIDs = Set(UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? [])
+        if localPaidIDs.insert(themeID).inserted {
+            UserDefaults.standard.set(Array(localPaidIDs), forKey: locallyKnownPaidThemeIDsKey)
+            print("ThemeManager: Theme ID '\(themeID)' added to local paid cache.")
         }
+
+        if self.purchasedThemeIDs.insert(themeID).inserted {
+             print("ThemeManager: Theme ID '\(themeID)' added to published purchasedThemeIDs.")
+        }
+        
+        // Sync with CloudKit since iCloud login is enabled for purchase
+        authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs) 
+        
+        setCurrentTheme(purchasedThemeObject)
     }
     
     func themesDidGetRestored(restoredThemeIDsFromStoreKit: Set<String>, authManager: AuthManager) {
-        var didUpdateLocally = false
-        var newCombinedPurchasedIDs = self.purchasedThemeIDs
+        guard settingsManagerInstance.useiCloudLogin else {
+            print("ThemeManager: Restore attempt while iCloud login is disabled. Restore flow should be blocked by UI.")
+            return
+        }
+
+        var localPaidIDs = Set(UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? [])
+        var didUpdateAnySet = false
 
         for themeID in restoredThemeIDsFromStoreKit {
             if let theme = themes.first(where: { $0.id == themeID && $0.isPremium }) {
-                if newCombinedPurchasedIDs.insert(theme.id).inserted {
-                    didUpdateLocally = true
-                    print("ThemeManager: Restored theme ID '\(theme.id)' added to local set.")
+                if localPaidIDs.insert(theme.id).inserted {
+                    print("ThemeManager: Restored theme ID '\(theme.id)' added to local paid cache.")
+                    didUpdateAnySet = true
+                }
+                if self.purchasedThemeIDs.insert(theme.id).inserted {
+                    print("ThemeManager: Restored theme ID '\(theme.id)' added to published purchasedThemeIDs.")
+                    didUpdateAnySet = true 
                 }
             }
         }
 
-        if didUpdateLocally {
-            self.purchasedThemeIDs = newCombinedPurchasedIDs
-            print("ThemeManager: Purchased themes restored. New local set: \(self.purchasedThemeIDs)")
-            authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs)
+        if didUpdateAnySet {
+            UserDefaults.standard.set(Array(localPaidIDs), forKey: locallyKnownPaidThemeIDsKey) // Save updated local cache
+            print("ThemeManager: Syncing updated purchased themes to CloudKit after restoration.")
+            authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs) // Sync all known
         } else {
             print("ThemeManager: No new themes were added from restoration, or restored IDs were not valid premium themes.")
         }
@@ -592,44 +695,123 @@ class AuthManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     static let userProfileRecordType = "UserProfiles"
+    static let useiCloudLoginKey = "useiCloudLogin" 
 
     init() {
         container = CKContainer.default()
         privateDB = container.privateCloudDatabase
-        print("AuthManager (CloudKit v2): 初始化完成。") // Chinese log from previous version
-        checkiCloudAccountStatusAndFetchProfile()
+        print("AuthManager (CloudKit v2): 初始化完成。")
+
+        let useiCloudInitial = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+        if UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) == nil {
+            UserDefaults.standard.set(useiCloudInitial, forKey: AuthManager.useiCloudLoginKey)
+        }
+
+
+        if useiCloudInitial {
+            print("AuthManager init: iCloud login is enabled by preference. Checking status.")
+            checkiCloudAccountStatusAndFetchProfile()
+        } else {
+            print("AuthManager init: iCloud login is disabled by preference (default or user set).")
+            DispatchQueue.main.async { 
+                self.clearLocalSessionForDisablediCloud(reason: "Initial setting is off.")
+                self.errorMessage = self.localizedErrorMessageForDisablediCloud() 
+            }
+        }
 
         NotificationCenter.default.publisher(for: .CKAccountChanged)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                print("AuthManager: Received CKAccountChanged notification. Will re-check account status and profile.") // Updated log
-                self?.iCloudUserActualRecordID = nil
-                self?.currentUser = nil
-                self?.isLoggedIn = false
-                self?.checkiCloudAccountStatusAndFetchProfile()
+                guard let self = self else { return }
+                print("AuthManager: Received CKAccountChanged notification.")
+                self.iCloudUserActualRecordID = nil 
+                
+                let useiCloudCurrent = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+                if useiCloudCurrent {
+                    print("AuthManager: iCloud account changed, and preference is ON. Re-checking account status and profile.")
+                    self.checkiCloudAccountStatusAndFetchProfile()
+                } else {
+                    print("AuthManager: iCloud account changed, but preference is OFF. Ensuring local session is cleared.")
+                    self.clearLocalSessionForDisablediCloud(reason: "Account changed while preference is off.")
+                    self.errorMessage = self.localizedErrorMessageForDisablediCloud()
+                }
             }
             .store(in: &cancellables)
     }
 
     deinit {
         cancellables.forEach { $0.cancel() }
-        print("AuthManager (CloudKit v2): Deinitialized.") // Updated log
+        print("AuthManager (CloudKit v2): Deinitialized.")
+    }
+    
+    private func localizedErrorMessageForDisablediCloud() -> String {
+        let sm = SettingsManager() 
+        return sm.localizedString(forKey: "iCloudLoginDisabledMessage")
     }
 
-    // MARK: - iCloud Account Status and User Profile Fetching
+    private func clearLocalSessionForDisablediCloud(reason: String) {
+        DispatchQueue.main.async {
+            if self.currentUser != nil || self.isLoggedIn || self.isLoading { 
+                print("AuthManager: Clearing local session. Reason: \(reason)")
+                self.currentUser = nil
+                self.isLoggedIn = false
+                self.iCloudUserActualRecordID = nil 
+                self.isLoading = false 
+                
+                if self.iCloudAccountStatus == .available {
+                   self.iCloudAccountStatus = .couldNotDetermine 
+                }
+                self.objectWillChange.send() 
+            }
+        }
+    }
+
+    public func handleiCloudPreferenceChange(useiCloud: Bool) {
+        print("AuthManager: iCloud preference changed to \(useiCloud).")
+        UserDefaults.standard.set(useiCloud, forKey: AuthManager.useiCloudLoginKey) 
+
+        if useiCloud {
+            self.errorMessage = nil 
+            self.isLoading = true 
+            if self.iCloudAccountStatus == .couldNotDetermine && self.currentUser == nil { 
+                 self.iCloudAccountStatus = .couldNotDetermine 
+            }
+            print("AuthManager: Preference ON. Attempting to check iCloud status and fetch profile.")
+            checkiCloudAccountStatusAndFetchProfile()
+        } else {
+            clearLocalSessionForDisablediCloud(reason: "User toggled preference to OFF.")
+            self.errorMessage = localizedErrorMessageForDisablediCloud()
+        }
+    }
 
     func checkiCloudAccountStatusAndFetchProfile() {
-        self.isLoading = true
-        self.errorMessage = nil
-        print("AuthManager: Checking iCloud account status...")
+        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
+        guard useiCloud else {
+            print("AuthManager checkiCloudAccountStatusAndFetchProfile: iCloud login preference is OFF. Aborting check.")
+            clearLocalSessionForDisablediCloud(reason: "Check called while preference is off.")
+            if self.errorMessage == nil { 
+                 self.errorMessage = localizedErrorMessageForDisablediCloud()
+            }
+            return
+        }
+
+        self.isLoading = true 
+        print("AuthManager: Checking iCloud account status (preference is ON)...")
 
         container.accountStatus { [weak self] (status, error) in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 
+                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+                guard currentiCloudPreference else { 
+                    print("AuthManager accountStatus callback: iCloud login preference turned OFF during async. Aborting.")
+                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during account status check.")
+                    return
+                }
+
                 if let error = error {
                     print("AuthManager: Error checking iCloud account status: \(error.localizedDescription)")
-                    self.errorMessage = "Failed to check iCloud status: \(error.localizedDescription)" // English error
+                    self.errorMessage = "Failed to check iCloud status: \(error.localizedDescription)"
                     self.iCloudAccountStatus = .couldNotDetermine
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
                     return
@@ -637,24 +819,26 @@ class AuthManager: ObservableObject {
 
                 self.iCloudAccountStatus = status
                 print("AuthManager: iCloud Account Status: \(status.description)")
+                let sm = SettingsManager() 
 
                 switch status {
                 case .available:
+                    self.errorMessage = nil 
                     self.fetchICloudUserRecordID()
                 case .noAccount:
-                    self.errorMessage = "Not logged into an iCloud account. Please log in via device settings." // English error
+                    self.errorMessage = sm.localizedString(forKey: "iCloudNoAccount") 
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
                 case .restricted:
-                    self.errorMessage = "iCloud account is restricted." // English error
+                    self.errorMessage = sm.localizedString(forKey: "iCloudRestricted") 
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
                 case .couldNotDetermine:
-                    self.errorMessage = "Could not determine iCloud account status." // English error
+                    self.errorMessage = sm.localizedString(forKey: "iCloudCouldNotDetermine") 
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
                 case .temporarilyUnavailable:
-                    self.errorMessage = "iCloud service is temporarily unavailable. Please try again later." // English error
+                    self.errorMessage = sm.localizedString(forKey: "iCloudTempUnavailable") 
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
                 @unknown default:
-                    self.errorMessage = "Unknown iCloud account status." // English error
+                    self.errorMessage = sm.localizedString(forKey: "iCloudUnknownStatus") 
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
                 }
             }
@@ -662,15 +846,29 @@ class AuthManager: ObservableObject {
     }
 
     private func fetchICloudUserRecordID() {
-        print("AuthManager: Attempting to fetch iCloud User Record ID...") // Updated log
-        self.isLoading = true
+        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
+        guard useiCloud else {
+            print("AuthManager fetchICloudUserRecordID: iCloud login preference is OFF. Aborting fetch.")
+            clearLocalSessionForDisablediCloud(reason: "User Record ID fetch called while preference is off.")
+            return
+        }
+
+        print("AuthManager: Attempting to fetch iCloud User Record ID (preference is ON)...")
+
         container.fetchUserRecordID { [weak self] (recordID, error) in
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
-
+                
+                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+                guard currentiCloudPreference else { 
+                    print("AuthManager fetchUserRecordID callback: iCloud login preference turned OFF during async. Aborting.")
+                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during user ID fetch.")
+                    return
+                }
+                let sm = SettingsManager() 
                 if let error = error {
                     print("AuthManager: Error fetching iCloud User Record ID: \(error.localizedDescription)")
-                    self.errorMessage = "Failed to fetch user identity: \(error.localizedDescription)" // English error
+                    self.errorMessage = "\(sm.localizedString(forKey: "iCloudFetchUserFailed")): \(error.localizedDescription)" 
                     self.iCloudUserActualRecordID = nil; self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                     return
                 }
@@ -680,34 +878,43 @@ class AuthManager: ObservableObject {
                     self.iCloudUserActualRecordID = recordID
                     self.fetchOrCreateUserProfile(linkedToICloudUserRecordName: recordID.recordName)
                 } else {
-                    print("AuthManager: No iCloud User Record ID fetched.") // Updated log
-                    self.errorMessage = "Failed to retrieve user identity." // English error
+                    print("AuthManager: No iCloud User Record ID fetched.")
+                    self.errorMessage = sm.localizedString(forKey: "iCloudNoUserIdentity") 
                     self.iCloudUserActualRecordID = nil; self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                 }
             }
         }
     }
 
-    /// Fetches or creates a UserProfile record linked to the given iCloudUserRecordName.
     private func fetchOrCreateUserProfile(linkedToICloudUserRecordName iCloudRecordName: String) {
-        print("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName)...") // Updated log
-        self.isLoading = true
+        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
+        guard useiCloud else {
+            print("AuthManager fetchOrCreateUserProfile: iCloud login preference is OFF. Aborting.")
+            clearLocalSessionForDisablediCloud(reason: "Profile fetch/create called while preference is off.")
+            return
+        }
+        print("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName) (preference is ON)...")
+        let sm = SettingsManager() 
 
         let predicate = NSPredicate(format: "iCloudUserRecordName == %@", iCloudRecordName)
         let query = CKQuery(recordType: AuthManager.userProfileRecordType, predicate: predicate)
         
-        // [MODIFIED] Using the new fetch API
         privateDB.fetch(withQuery: query, inZoneWith: nil, desiredKeys: nil, resultsLimit: 1) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
 
+                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+                guard currentiCloudPreference else { 
+                    print("AuthManager fetchOrCreateUserProfile callback: iCloud login preference turned OFF. Aborting.")
+                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile fetch/create.")
+                    return
+                }
+
                 switch result {
                 case .success(let data):
-                    // data is (matchResults: [(CKRecord.ID, Result<CKRecord, Error>)], queryCursor: CKQueryCursor?)
                     if let firstMatch = data.matchResults.first {
-                        // A record ID matched the query. Now check if the record itself was fetched successfully.
                         let matchedRecordID = firstMatch.0
-                        switch firstMatch.1 { // This is Result<CKRecord, Error>
+                        switch firstMatch.1 {
                         case .success(let existingUserProfileRecord):
                             print("AuthManager: Found existing UserProfile record: \(existingUserProfileRecord.recordID.recordName)")
                             if let userProfile = UserProfile(from: existingUserProfileRecord) {
@@ -715,24 +922,23 @@ class AuthManager: ObservableObject {
                                 self.isLoggedIn = true
                                 print("AuthManager: UserProfile loaded: \(userProfile.displayName ?? userProfile.id)")
                             } else {
-                                print("AuthManager: Failed to parse UserProfile from fetched record (ID: \(matchedRecordID.recordName)). This might indicate a data modeling mismatch.")
-                                self.errorMessage = "Failed to parse user information (existing record)." // English error
+                                print("AuthManager: Failed to parse UserProfile from fetched record (ID: \(matchedRecordID.recordName)).")
+                                self.errorMessage = sm.localizedString(forKey: "iCloudParseProfileErrorExisting") 
                                 self.currentUser = nil; self.isLoggedIn = false
                             }
                             self.isLoading = false
                         case .failure(let recordFetchError):
                             print("AuthManager: Matched UserProfile ID \(matchedRecordID.recordName), but failed to fetch record: \(recordFetchError.localizedDescription)")
-                            self.errorMessage = "Failed to load user details (fetch error): \(recordFetchError.localizedDescription)" // English error
+                            self.errorMessage = "\(sm.localizedString(forKey: "iCloudLoadProfileErrorFetch")): \(recordFetchError.localizedDescription)" 
                             self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                         }
                     } else {
-                        // No records matched the query, create a new UserProfile.
-                        print("AuthManager: No UserProfile found for iCloud User \(iCloudRecordName). Creating new UserProfile.") // Updated log
+                        print("AuthManager: No UserProfile found for iCloud User \(iCloudRecordName). Creating new UserProfile.")
                         self.createUserProfile(linkedToICloudUserRecordName: iCloudRecordName)
                     }
                 case .failure(let queryError):
                     print("AuthManager: Error querying UserProfile: \(queryError.localizedDescription)")
-                    self.errorMessage = "Failed to load user information (query error): \(queryError.localizedDescription)" // English error
+                    self.errorMessage = "\(sm.localizedString(forKey: "iCloudLoadProfileErrorQuery")): \(queryError.localizedDescription)" 
                     self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                 }
             }
@@ -740,12 +946,18 @@ class AuthManager: ObservableObject {
     }
 
     private func createUserProfile(linkedToICloudUserRecordName iCloudRecordName: String) {
-        print("AuthManager: Creating new UserProfile linked to iCloud User \(iCloudRecordName)...") // Updated log
-        self.isLoading = true
+        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
+        guard useiCloud else {
+            print("AuthManager createUserProfile: iCloud login preference is OFF. Aborting.")
+            clearLocalSessionForDisablediCloud(reason: "Profile create called while preference is off.")
+            return
+        }
+        print("AuthManager: Creating new UserProfile linked to iCloud User \(iCloudRecordName) (preference is ON)...")
+        let sm = SettingsManager() 
 
         let newUserProfile = UserProfile(
             iCloudUserRecordName: iCloudRecordName,
-            displayName: "Klotski_Auth_1", // Default display name in English
+            displayName: sm.localizedString(forKey: "defaultPlayerName"), 
             purchasedThemeIDs: Set(AppThemeRepository.allThemes.filter { !$0.isPremium }.map { $0.id })
         )
         
@@ -755,13 +967,20 @@ class AuthManager: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
 
+                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+                guard currentiCloudPreference else { 
+                    print("AuthManager createUserProfile callback: iCloud login preference turned OFF. Aborting.")
+                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile creation.")
+                    return
+                }
+
                 if let error = error {
                     print("AuthManager: Error saving new UserProfile record: \(error.localizedDescription)")
-                    self.errorMessage = "Failed to create user profile (save error): \(error.localizedDescription)" // English error
+                    self.errorMessage = "\(sm.localizedString(forKey: "iCloudCreateProfileErrorSave")): \(error.localizedDescription)" 
                     self.currentUser = nil; self.isLoggedIn = false
                     
                     if let ckError = error as? CKError, ckError.code == .constraintViolation {
-                        print("AuthManager: Constraint violation while creating UserProfile. Record might already exist due to concurrency. Attempting to re-fetch.")
+                        print("AuthManager: Constraint violation while creating UserProfile. Attempting to re-fetch.")
                         self.fetchOrCreateUserProfile(linkedToICloudUserRecordName: iCloudRecordName)
                         return 
                     }
@@ -775,7 +994,7 @@ class AuthManager: ObservableObject {
                     print("AuthManager: New UserProfile successfully created and loaded: \(finalProfile.displayName ?? finalProfile.id)")
                 } else {
                     print("AuthManager: Failed to create UserProfile from newly saved record, or save did not return a record.")
-                    self.errorMessage = "Failed to parse user profile after creation." // English error
+                    self.errorMessage = sm.localizedString(forKey: "iCloudParseProfileErrorNew") 
                     self.currentUser = nil; self.isLoggedIn = false
                 }
                 self.isLoading = false
@@ -784,60 +1003,75 @@ class AuthManager: ObservableObject {
     }
     
     func saveCurrentUserProfile() {
+        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
+        guard useiCloud else {
+            print("AuthManager saveCurrentUserProfile: iCloud login preference is OFF. Cannot save profile.")
+            self.errorMessage = localizedErrorMessageForDisablediCloud()
+            return
+        }
+
         guard let currentUserProfile = self.currentUser else {
             print("AuthManager: Cannot save profile. No current user.")
             return
         }
         guard iCloudAccountStatus == .available else {
             print("AuthManager: iCloud account not available. Cannot save profile to CloudKit.")
-            self.errorMessage = "iCloud not available. Cannot save user profile." // English error
+            let sm = SettingsManager()
+            self.errorMessage = sm.localizedString(forKey: "iCloudUnavailableCannotSave") 
             return
         }
         guard self.iCloudUserActualRecordID != nil else {
             print("AuthManager: Cannot save profile. iCloudUserActualRecordID is unknown.")
-            self.errorMessage = "User identity information is incomplete. Cannot save." // English error
+            let sm = SettingsManager()
+            self.errorMessage = sm.localizedString(forKey: "iCloudUserIdentityIncomplete") 
             return
         }
 
-        print("AuthManager: Saving current UserProfile (ID: \(currentUserProfile.id)) to CloudKit...")
+        print("AuthManager: Saving current UserProfile (ID: \(currentUserProfile.id)) to CloudKit (preference is ON)...")
         self.isLoading = true
+        let sm = SettingsManager() 
         
         let userProfileRecordIDToFetch = CKRecord.ID(recordName: currentUserProfile.id)
 
         privateDB.fetch(withRecordID: userProfileRecordIDToFetch) { [weak self] (existingRecord, error) in
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
+                
+                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
+                guard currentiCloudPreference else { 
+                    print("AuthManager saveCurrentUserProfile callback: iCloud login preference turned OFF. Aborting save.")
+                    self.isLoading = false 
+                    return
+                }
 
                 var recordToSave: CKRecord
                 if let fetchError = error as? CKError, fetchError.code == .unknownItem {
-                    // Record doesn't exist, which is unexpected if currentUserProfile.id is valid.
-                    // This might happen if the record was deleted externally. We'll create it.
                     print("AuthManager: UserProfile record (ID: \(currentUserProfile.id)) not found during save. Creating new.")
-                    recordToSave = currentUserProfile.toCKRecord(existingRecord: nil) // Pass nil to create new
+                    recordToSave = currentUserProfile.toCKRecord(existingRecord: nil)
                 } else if let error = error {
                     print("AuthManager: Error fetching existing record before save: \(error.localizedDescription)")
-                    self.errorMessage = "Failed to save profile (error fetching existing): \(error.localizedDescription)" // English error
+                    self.errorMessage = "\(sm.localizedString(forKey: "iCloudSaveProfileErrorFetch")): \(error.localizedDescription)" 
                     self.isLoading = false
                     return
                 } else if let fetchedRecord = existingRecord {
                      recordToSave = currentUserProfile.toCKRecord(existingRecord: fetchedRecord)
                 } else {
-                    // Should not happen if error is nil and existingRecord is nil
                      print("AuthManager: Unexpected state: no error but no existing record found for ID \(currentUserProfile.id) during save. Creating new.")
                      recordToSave = currentUserProfile.toCKRecord(existingRecord: nil)
                 }
-
 
                 self.privateDB.save(recordToSave) { (savedRecord, saveError) in
                     DispatchQueue.main.async {
                         self.isLoading = false
                         if let saveError = saveError {
                             print("AuthManager: Error saving UserProfile to CloudKit: \(saveError.localizedDescription)")
-                            self.errorMessage = "Failed to save user profile (write error): \(saveError.localizedDescription)" // English error
+                            self.errorMessage = "\(sm.localizedString(forKey: "iCloudSaveProfileErrorWrite")): \(saveError.localizedDescription)" 
                         } else {
                             print("AuthManager: UserProfile successfully saved to CloudKit.")
                             if let sr = savedRecord, let updatedProfile = UserProfile(from: sr) {
-                                self.currentUser = updatedProfile
+                                if self.currentUser?.recordChangeTag != updatedProfile.recordChangeTag || self.currentUser?.purchasedThemeIDs != updatedProfile.purchasedThemeIDs {
+                                    self.currentUser = updatedProfile
+                                }
                             }
                         }
                     }
@@ -847,158 +1081,170 @@ class AuthManager: ObservableObject {
     }
 
     public func refreshAuthenticationState() {
-        print("AuthManager: Manually refreshing authentication state...") // Updated log
-        self.iCloudUserActualRecordID = nil
-        self.currentUser = nil
-        self.isLoggedIn = false
+        print("AuthManager: Manually refreshing authentication state...")
+        self.iCloudUserActualRecordID = nil 
         checkiCloudAccountStatusAndFetchProfile()
     }
 
-    public func pseudoLogout() {
-        print("AuthManager: Performing pseudo-logout (clearing local session)...")
-        DispatchQueue.main.async {
-            self.currentUser = nil
-            self.iCloudUserActualRecordID = nil
-            self.isLoggedIn = false
-            self.errorMessage = "You have been signed out from the app." // English error
-            self.objectWillChange.send()
-        }
+    public func pseudoLogout() { 
+        print("AuthManager: Performing pseudo-logout (clearing local app session)...")
+        clearLocalSessionForDisablediCloud(reason: "Pseudo-logout called.")
+        let sm = SettingsManager()
+        self.errorMessage = sm.localizedString(forKey: "loggedOutMessage") 
     }
 
     func updateUserPurchasedThemes(themeIDs: Set<String>) {
+        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
+        guard useiCloud else {
+            print("AuthManager updateUserPurchasedThemes: iCloud login preference is OFF. Cannot update themes on CloudKit.")
+            return
+        }
+
         guard var profileToUpdate = self.currentUser else {
-            print("AuthManager: Cannot update purchased themes. No current user.")
-            self.errorMessage = "User not logged in. Cannot update purchased themes." // English error
+            print("AuthManager: Cannot update purchased themes. No current user (or iCloud disabled).")
             return
         }
         
-        profileToUpdate.purchasedThemeIDs = themeIDs
-        self.currentUser = profileToUpdate
-        saveCurrentUserProfile()
+        if profileToUpdate.purchasedThemeIDs != themeIDs {
+            profileToUpdate.purchasedThemeIDs = themeIDs
+            self.currentUser = profileToUpdate 
+            print("AuthManager: User's purchased themes updated locally. Attempting to save to CloudKit.")
+            saveCurrentUserProfile() 
+        } else {
+            print("AuthManager: No change in purchased themes. Skipping save.")
+        }
     }
 }
 
 extension CKAccountStatus {
-    var description: String {
+    var description: String { 
         switch self {
-        case .couldNotDetermine: return "无法确定"
-        case .available: return "可用"
-        case .restricted: return "受限"
-        case .noAccount: return "无账户"
-        case .temporarilyUnavailable: return "暂时不可用"
-        @unknown default: return "未知状态"
+        case .couldNotDetermine: return "无法确定 (Could Not Determine)"
+        case .available: return "可用 (Available)"
+        case .restricted: return "受限 (Restricted)"
+        case .noAccount: return "无账户 (No Account)"
+        case .temporarilyUnavailable: return "暂时不可用 (Temporarily Unavailable)"
+        @unknown default: return "未知状态 (Unknown)"
         }
     }
 }
 
-// 在 KlotskiApp.swift 中传递 window 给 AuthManager
-// KlotskiApp.swift
-// ...
-// .onReceive(NotificationCenter.default.publisher(for: UIWindow.didBecomeKeyNotification)) { notification in
-//     if let window = notification.object as? UIWindow {
-//         authManager.currentWindow = window
-//         print("AuthManager currentWindow set.")
-//     }
-// }
-// ...
-
 
 class SettingsManager: ObservableObject {
-    // Using @AppStorage for persistence of simple settings
-    @AppStorage("selectedLanguage") var language: String = Locale.preferredLanguages.first?.split(separator: "-").first.map(String.init) ?? "en" // Default to system's preferred language or English
+    @AppStorage("selectedLanguage") var language: String = Locale.preferredLanguages.first?.split(separator: "-").first.map(String.init) ?? "en"
     @AppStorage("isSoundEffectsEnabled") var soundEffectsEnabled: Bool = true
     @AppStorage("isMusicEnabled") var musicEnabled: Bool = true
     @AppStorage("isHapticsEnabled") var hapticsEnabled: Bool = true
-    // Add other settings as needed
+    @AppStorage(AuthManager.useiCloudLoginKey) var useiCloudLogin: Bool = false // DEFAULT TO FALSE
 
-    // Basic localization dictionary. For a real app, use .strings files and Bundle.main.localizedString.
     private let translations: [String: [String: String]] = [
         "en": [
-            "gameTitle": "Klotski",
-            "startGame": "Start Game",
-            "continueGame": "Continue Game",
-            "selectLevel": "Select Level",
-            "themes": "Themes",
-            "leaderboard": "Leaderboard",
-            "settings": "Settings",
-            "login": "Login",
-            "register": "Register",
-            "logout": "Logout",
-            "loggedInAs": "Logged in as:",
-            "email": "Email",
-            "password": "Password",
-            "displayName": "Display Name",
-            "forgotPassword": "Forgot Password?",
-            "signInWithApple": "Sign in with Apple",
-            "cancel": "Cancel",
-            "level": "Level",
-            "moves": "Moves",
-            "time": "Time",
-            "noLevels": "No levels available.",
-            "themeStore": "Theme Store",
-            "applyTheme": "Apply",
-            "purchase": "Purchase",
-            "restorePurchases": "Restore Purchases",
-            "language": "Language",
-            "chinese": "简体中文 (Chinese)",
-            "english": "English",
-            "soundEffects": "Sound Effects",
-            "music": "Music",
-            "haptics": "Haptics",
+            "gameTitle": "Klotski", "startGame": "Start Game", "continueGame": "Continue Game",
+            "selectLevel": "Select Level", "themes": "Themes", "leaderboard": "Leaderboard",
+            "settings": "Settings", "login": "Login", "register": "Register", "logout": "Logout", "confirm": "Confirm",
+            "loggedInAs": "Logged in as:", "email": "Email", "password": "Password",
+            "displayName": "Display Name", "forgotPassword": "Forgot Password?",
+            "signInWithApple": "Sign in with Apple", "cancel": "Cancel", "level": "Level",
+            "moves": "Moves", "time": "Time", "noLevels": "No levels available.",
+            "themeStore": "Theme Store", "applyTheme": "Apply", "purchase": "Purchase",
+            "restorePurchases": "Restore Purchases", "language": "Language",
+            "chinese": "简体中文 (Chinese)", "english": "English",
+            "soundEffects": "Sound Effects", "music": "Music", "haptics": "Haptics",
             "resetProgress": "Reset Progress",
             "areYouSureReset": "Are you sure you want to reset all game progress? This cannot be undone.",
-            "reset": "Reset",
-            "pause": "Pause", 
-            "resume": "Resume",
-            "backToMenu": "Back to Menu",
-            "victoryTitle": "Congratulations!",
-            "victoryMessage": "Level Cleared!",
-            "confirmPassword": "Confirm Password",
-            "passwordsDoNotMatch": "Passwords do not match!"
-
+            "reset": "Reset", "pause": "Pause", "resume": "Resume",
+            "backToMenu": "Back to Menu", "victoryTitle": "Congratulations!",
+            "victoryMessage": "Level Cleared!", "confirmPassword": "Confirm Password",
+            "passwordsDoNotMatch": "Passwords do not match!",
+            "useiCloudLogin": "Use iCloud Login", 
+            "iCloudLoginDescription": "Enables saving progress, purchases, and leaderboard scores via iCloud. You may need to enable iCloud for Klotski in iPhone Settings.", 
+            "iCloudSectionTitle": "iCloud & Account", 
+            "purchaseRequiresiCloud": "Purchasing this theme requires iCloud login to be enabled in settings.", 
+            "applyPaidThemeRequiresiCloud": "Applying paid themes requires iCloud login to be enabled in settings.", 
+            "leaderboardRequiresiCloud": "Leaderboard access and score submission require iCloud login to be enabled in settings.", 
+            "iCloudLoginDisabledMessage": "iCloud login is disabled in settings.",
+            "openSettings": "Open Settings", 
+            "iCloudEnableInstructionTitle": "Enable iCloud for Klotski", 
+            "iCloudEnableInstructionMessage": "To use iCloud features, please ensure Klotski is allowed to use iCloud in your iPhone's Settings:\n\n1. Go to Settings > [Your Name] > iCloud.\n2. Scroll down to 'APPS USING ICLOUD' and tap 'Show All'.\n3. Find Klotski and make sure the switch is ON.", 
+            "iCloudNoAccount": "Not logged into an iCloud account. Please log in via device settings.",
+            "iCloudRestricted": "iCloud account is restricted.",
+            "iCloudCouldNotDetermine": "Could not determine iCloud account status.",
+            "iCloudTempUnavailable": "iCloud service is temporarily unavailable. Please try again later.",
+            "iCloudUnknownStatus": "Unknown iCloud account status.",
+            "iCloudFetchUserFailed": "Failed to fetch user identity",
+            "iCloudNoUserIdentity": "Failed to retrieve user identity.",
+            "iCloudParseProfileErrorExisting": "Failed to parse user information (existing record).",
+            "iCloudLoadProfileErrorFetch": "Failed to load user details (fetch error)",
+            "iCloudLoadProfileErrorQuery": "Failed to load user information (query error)",
+            "defaultPlayerName": "Klotski Player",
+            "iCloudCreateProfileErrorSave": "Failed to create user profile (save error)",
+            "iCloudParseProfileErrorNew": "Failed to parse user profile after creation.",
+            "iCloudUnavailableCannotSave": "iCloud not available. Cannot save user profile.",
+            "iCloudUserIdentityIncomplete": "User identity information is incomplete. Cannot save.",
+            "iCloudSaveProfileErrorFetch": "Failed to save profile (error fetching existing)",
+            "iCloudSaveProfileErrorWrite": "Failed to save user profile (write error)",
+            "loggedOutMessage": "You have been signed out from the app.",
+            "iCloudCheckingStatus": "Checking iCloud Status...", // For MainMenuView
+            "iCloudUser": "iCloud User", // For MainMenuView
+            "iCloudNoAccountDetailed": "Not logged into iCloud. Go to device settings to enable cloud features.", // For MainMenuView
+            "iCloudConnectionError": "Cannot connect to iCloud.", // For MainMenuView
+            "iCloudSyncError": "iCloud available, but app could not sync user data.", // For MainMenuView
+            "iCloudLoginPrompt": "iCloud features require login. Check settings.", // For MainMenuView
+            "iCloudDisabledInSettings": "iCloud login is disabled. Cloud features are unavailable." // For MainMenuView
         ],
         "zh": [
-            "gameTitle": "华容道",
-            "startGame": "开始游戏",
-            "continueGame": "继续游戏",
-            "selectLevel": "选择关卡",
-            "themes": "主题",
-            "leaderboard": "排行榜",
-            "settings": "设置",
-            "login": "登录",
-            "register": "注册",
-            "logout": "注销",
-            "loggedInAs": "已登录:",
-            "email": "邮箱",
-            "password": "密码",
-            "displayName": "昵称",
-            "forgotPassword": "忘记密码?",
-            "signInWithApple": "通过Apple登录",
-            "cancel": "取消",
-            "level": "关卡",
-            "moves": "步数",
-            "time": "时间",
-            "noLevels": "暂无可用关卡。",
-            "themeStore": "主题商店",
-            "applyTheme": "应用",
-            "purchase": "购买",
-            "restorePurchases": "恢复购买",
-            "language": "语言",
-            "chinese": "简体中文",
-            "english": "English (英文)",
-            "soundEffects": "音效",
-            "music": "音乐",
-            "haptics": "触感反馈",
+            "gameTitle": "华容道", "startGame": "开始游戏", "continueGame": "继续游戏",
+            "selectLevel": "选择关卡", "themes": "主题", "leaderboard": "排行榜",
+            "settings": "设置", "login": "登录", "register": "注册", "logout": "注销", "confirm": "确认",
+            "loggedInAs": "已登录:", "email": "邮箱", "password": "密码",
+            "displayName": "昵称", "forgotPassword": "忘记密码?",
+            "signInWithApple": "通过Apple登录", "cancel": "取消", "level": "关卡",
+            "moves": "步数", "time": "时间", "noLevels": "暂无可用关卡。",
+            "themeStore": "主题商店", "applyTheme": "应用", "purchase": "购买",
+            "restorePurchases": "恢复购买", "language": "语言",
+            "chinese": "简体中文", "english": "English (英文)",
+            "soundEffects": "音效", "music": "音乐", "haptics": "触感反馈",
             "resetProgress": "重置进度",
             "areYouSureReset": "您确定要重置所有游戏进度吗？此操作无法撤销。",
-            "reset": "重置",
-            "pause": "暂停",
-            "resume": "继续",
-            "backToMenu": "返回主菜单",
-            "victoryTitle": "恭喜获胜!",
-            "victoryMessage": "成功过关!",
-            "confirmPassword": "确认密码",
-            "passwordsDoNotMatch": "两次输入的密码不一致！"
+            "reset": "重置", "pause": "暂停", "resume": "继续",
+            "backToMenu": "返回主菜单", "victoryTitle": "恭喜获胜!",
+            "victoryMessage": "成功过关!", "confirmPassword": "确认密码",
+            "passwordsDoNotMatch": "两次输入的密码不一致！",
+            "useiCloudLogin": "使用iCloud登录", 
+            "iCloudLoginDescription": "通过iCloud同步游戏进度、购买项目和排行榜记录。您可能需要在iPhone设置中为本App开启iCloud。", 
+            "iCloudSectionTitle": "iCloud与账户", 
+            "purchaseRequiresiCloud": "购买此主题需要在设置中启用iCloud登录。", 
+            "applyPaidThemeRequiresiCloud": "应用付费主题需要在设置中启用iCloud登录。", 
+            "leaderboardRequiresiCloud": "访问排行榜及提交记录需要在设置中启用iCloud登录。", 
+            "iCloudLoginDisabledMessage": "iCloud登录已在设置中禁用。",
+            "openSettings": "打开设置", 
+            "iCloudEnableInstructionTitle": "为“华容道”启用iCloud", 
+            "iCloudEnableInstructionMessage": "要使用iCloud功能，请确保在您的iPhone设置中允许“华容道”使用iCloud：\n\n1. 前往 设置 > [您的姓名] > iCloud。\n2. 向下滚动到“使用ICLOUD的应用”，并轻点“显示全部”。\n3. 找到“华容道”并确保其开关已打开。", 
+            "iCloudNoAccount": "未登录iCloud账户。请在设备设置中登录。",
+            "iCloudRestricted": "iCloud账户受限。",
+            "iCloudCouldNotDetermine": "无法确定iCloud账户状态。",
+            "iCloudTempUnavailable": "iCloud服务暂时不可用，请稍后再试。",
+            "iCloudUnknownStatus": "未知的iCloud账户状态。",
+            "iCloudFetchUserFailed": "获取用户身份失败",
+            "iCloudNoUserIdentity": "未能检索到用户身份。",
+            "iCloudParseProfileErrorExisting": "解析用户信息失败（已存在记录）。",
+            "iCloudLoadProfileErrorFetch": "加载用户详情失败（获取错误）",
+            "iCloudLoadProfileErrorQuery": "加载用户信息失败（查询错误）",
+            "defaultPlayerName": "华容道玩家",
+            "iCloudCreateProfileErrorSave": "创建用户配置失败（保存错误）",
+            "iCloudParseProfileErrorNew": "创建后解析用户配置失败。",
+            "iCloudUnavailableCannotSave": "iCloud不可用。无法保存用户配置。",
+            "iCloudUserIdentityIncomplete": "用户身份信息不完整。无法保存。",
+            "iCloudSaveProfileErrorFetch": "保存配置失败（获取现有配置错误）",
+            "iCloudSaveProfileErrorWrite": "保存用户配置失败（写入错误）",
+            "loggedOutMessage": "您已从此应用注销。",
+            "iCloudCheckingStatus": "正在检查iCloud状态...", // For MainMenuView
+            "iCloudUser": "iCloud用户", // For MainMenuView
+            "iCloudNoAccountDetailed": "未登录iCloud账户。请前往设备设置登录以使用云功能。", // For MainMenuView
+            "iCloudConnectionError": "无法连接到iCloud。", // For MainMenuView
+            "iCloudSyncError": "iCloud可用，但应用未能同步用户数据。", // For MainMenuView
+            "iCloudLoginPrompt": "iCloud功能需要登录。请检查设置。", // For MainMenuView
+            "iCloudDisabledInSettings": "iCloud登录已禁用。云同步功能不可用。" // For MainMenuView
         ]
     ]
 
@@ -1007,29 +1253,13 @@ class SettingsManager: ObservableObject {
     }
 }
 
-// Simple manager to handle sounds and haptics, respecting user settings.
 struct SoundManager {
-    // Using static methods for simplicity in P1.
-    // For more complex audio, a dedicated class/ObservableObject might be better.
     private static var audioPlayer: AVAudioPlayer?
     private static let hapticNotificationGenerator = UINotificationFeedbackGenerator()
     private static let hapticImpactGenerator = UIImpactFeedbackGenerator(style: .medium)
 
-    // Placeholder for playing sounds. Actual implementation would load and play sound files.
     static func playSound(named soundName: String, type: String = "mp3", settings: SettingsManager) {
         guard settings.soundEffectsEnabled else { return }
-        // In a real app, you would use AVAudioPlayer here:
-        // guard let path = Bundle.main.path(forResource: soundName, ofType: type) else {
-        //     print("Sound file not found: \(soundName).\(type)")
-        //     return
-        // }
-        // do {
-        //     audioPlayer = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: path))
-        //     audioPlayer?.play()
-        //     print("SoundManager: Playing sound \(soundName)")
-        // } catch {
-        //     print("SoundManager: Could not load/play sound file: \(error)")
-        // }
         print("SoundManager: Playing sound '\(soundName)' (if enabled and sound file exists)")
     }
 
