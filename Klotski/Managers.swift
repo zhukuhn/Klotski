@@ -10,6 +10,7 @@ import AVFoundation // For future sound implementation
 import UIKit // For Haptics
 import Combine
 import CloudKit
+import StoreKit
 
 class GameManager: ObservableObject {
     @Published var currentLevel: Level?
@@ -155,6 +156,7 @@ class GameManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: savedTimeKey)
         UserDefaults.standard.removeObject(forKey: savedPiecesKey)
         UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
+        UserDefaults.standard.removeObject(forKey: savedIsPausedKey) // Also clear saved pause state for this attempt
         hasSavedGame = false // 因为当前尝试的存档被清除了
         print("已清除当前尝试的关卡存档。hasSavedGame = \(hasSavedGame)")
     }
@@ -220,7 +222,6 @@ class GameManager: ObservableObject {
         guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
               newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
             print("移动无效：棋子 \(pieceId) 移出边界。")
-            // SoundManager.playHapticNotification(type: .error, settings: settings) // Handled in GameView
             return false
         }
         
@@ -245,12 +246,12 @@ class GameManager: ObservableObject {
             pieceToMove = pieces[index]
         }
         
-        moves += abs(dx) + abs(dy)
+        moves += abs(dx) + abs(dy) // A more accurate move count for Klotski might be just 1 per piece slide.
+                                   // However, this counts each grid unit moved.
         print("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
         
         checkWinCondition(movedPiece: pieceToMove, settings: settings)
         
-        // --- P1: Auto-save after successful move ---
         if isGameActive && !isGameWon {
             saveGame(settings: settings)
         }
@@ -261,7 +262,6 @@ class GameManager: ObservableObject {
         guard let level = currentLevel, let pieceToMove = pieces.first(where: { $0.id == pieceId }) else {
             return false
         }
-        // 如果没有位移，则认为可以“移动”（停在原地）
         if deltaX == 0 && deltaY == 0 { return true }
         
         let newX = currentGridX + deltaX
@@ -269,7 +269,7 @@ class GameManager: ObservableObject {
         
         guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
               newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
-            return false // 超出边界
+            return false 
         }
         
         for r_offset in 0..<pieceToMove.height {
@@ -277,7 +277,7 @@ class GameManager: ObservableObject {
                 let targetBoardY = newY + r_offset
                 let targetBoardX = newX + c_offset
                 if let occupyingPieceId = gameBoard[targetBoardY][targetBoardX], occupyingPieceId != pieceId {
-                    return false // 碰撞
+                    return false 
                 }
             }
         }
@@ -286,13 +286,13 @@ class GameManager: ObservableObject {
     
     
     func checkWinCondition(movedPiece: Piece, settings: SettingsManager) {
-        guard let level = currentLevel, !isGameWon else { return } // 防止重复触发胜利
+        guard let level = currentLevel, !isGameWon else { return } 
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
-            stopTimer() // 胜利时停止计时器
+            stopTimer() 
             print("恭喜！关卡 \(level.name) 完成！总步数: \(moves)")
-            SoundManager.playSound(named: "victory_fanfare", settings: settings) // 立即播放胜利音效
-            SoundManager.playHapticNotification(type: .success, settings: settings) // 立即播放胜利触感
+            SoundManager.playSound(named: "victory_fanfare", settings: settings) 
+            SoundManager.playHapticNotification(type: .success, settings: settings) 
             
             if let currentIndex = currentLevelIndex {
                 var completedLevel = levels[currentIndex]
@@ -309,33 +309,33 @@ class GameManager: ObservableObject {
                 }
                 if recordUpdated {
                     levels[currentIndex] = completedLevel
-                    // TODO P2: 在这里持久化整个 levels 数组 (例如保存到 UserDefaults)
-                    // persistLevelsArray()
+                    // TODO P2: Persist the entire levels array (e.g., to UserDefaults or CloudKit if it contains user-specific bests)
+                    // persistLevelsArray() 
                 }
             }
-            clearSavedGameForCurrentLevelOnly() // 清除当前尝试的存档，因为关卡已完成
+            clearSavedGameForCurrentLevelOnly() 
         }
     }
     
     
     func continueGame(settings: SettingsManager) {
         guard let savedLevelID = UserDefaults.standard.string(forKey: savedLevelIDKey),
-              let savedLevelIndex = UserDefaults.standard.object(forKey: savedLevelIndexKey) as? Int, // 加载索引
-              savedLevelIndex >= 0 && savedLevelIndex < levels.count, // 确保索引有效
-              let levelToContinue = levels.first(where: { $0.id == savedLevelID }), // 确保关卡ID匹配
+              let savedLevelIndex = UserDefaults.standard.object(forKey: savedLevelIndexKey) as? Int, 
+              savedLevelIndex >= 0 && savedLevelIndex < levels.count, 
+              let levelToContinue = levels.first(where: { $0.id == savedLevelID }), 
               UserDefaults.standard.object(forKey: savedPiecesKey) != nil,
               UserDefaults.standard.object(forKey: savedMovesKey) != nil,
-              UserDefaults.standard.object(forKey: savedTimeKey) != nil
+              UserDefaults.standard.object(forKey: savedTimeKey) != nil,
+              UserDefaults.standard.object(forKey: savedIsPausedKey) != nil // Check for pause state key
         else {
             print("继续游戏失败：未找到有效或完整的存档。将清除任何部分存档。")
             clearSavedGame(); hasSavedGame = false; return
         }
         
         self.currentLevel = levelToContinue
-        self.currentLevelIndex = savedLevelIndex // 设置当前关卡索引
+        self.currentLevelIndex = savedLevelIndex 
         self.moves = UserDefaults.standard.integer(forKey: savedMovesKey)
         self.timeElapsed = UserDefaults.standard.double(forKey: savedTimeKey)
-        // Load pause state
         self.isPaused = UserDefaults.standard.bool(forKey: savedIsPausedKey)
 
 
@@ -346,8 +346,8 @@ class GameManager: ObservableObject {
                 self.isGameActive = true; self.isGameWon = false
                 print("继续游戏: \(levelToContinue.name) (索引: \(savedLevelIndex)), 棋子状态已加载, isPaused: \(self.isPaused)")
                 SoundManager.playImpactHaptic(settings: settings)
-                if !self.isPaused && !self.isGameWon { startTimer() } // 如果不是暂停状态且未胜利，则启动计时器
-                else { stopTimer() } // Ensure timer is stopped if paused or won
+                if !self.isPaused && !self.isGameWon { startTimer() } 
+                else { stopTimer() } 
                 
                 if let targetPiece = pieces.first(where: {$0.id == levelToContinue.targetPieceId}) {
                      checkWinCondition(movedPiece: targetPiece, settings: settings)
@@ -366,7 +366,6 @@ class GameManager: ObservableObject {
             print("SaveGame: 无当前关卡，无法保存。")
             return
         }
-        // 仅当游戏活跃且未胜利时才保存，以支持“继续游戏”功能
         guard isGameActive && !isGameWon else {
             print("SaveGame: 游戏非活跃或已胜利，跳过保存。isGameActive=\(isGameActive), isGameWon=\(isGameWon)")
             return
@@ -375,15 +374,15 @@ class GameManager: ObservableObject {
         UserDefaults.standard.set(currentIndex, forKey: savedLevelIndexKey)
         UserDefaults.standard.set(moves, forKey: savedMovesKey)
         UserDefaults.standard.set(timeElapsed, forKey: savedTimeKey)
-        UserDefaults.standard.set(isPaused, forKey: savedIsPausedKey) // Save pause state
+        UserDefaults.standard.set(isPaused, forKey: savedIsPausedKey) 
         do {
             let encodedPieces = try JSONEncoder().encode(pieces)
             UserDefaults.standard.set(encodedPieces, forKey: savedPiecesKey)
-            hasSavedGame = true // 关键：这会使“继续游戏”按钮出现
+            hasSavedGame = true 
             print("游戏已保存: \(currentLevel.name), 步数: \(moves), isPaused: \(isPaused)。hasSavedGame = \(hasSavedGame)")
         } catch {
             print("错误：无法编码并保存棋子状态: \(error)")
-            hasSavedGame = false // 如果棋子无法保存，则存档不完整
+            hasSavedGame = false 
         }
     }
     
@@ -392,8 +391,8 @@ class GameManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
         UserDefaults.standard.removeObject(forKey: savedMovesKey)
         UserDefaults.standard.removeObject(forKey: savedTimeKey)
-        UserDefaults.standard.removeObject(forKey: savedPiecesKey) // Clear saved pieces
-        UserDefaults.standard.removeObject(forKey: savedIsPausedKey) // Clear saved pause state
+        UserDefaults.standard.removeObject(forKey: savedPiecesKey) 
+        UserDefaults.standard.removeObject(forKey: savedIsPausedKey) 
         hasSavedGame = false
         print("已清除已保存的游戏及棋子状态")
     }
@@ -414,7 +413,6 @@ class GameManager: ObservableObject {
         }
     }
 
-    // 辅助函数：格式化时间显示
     func formattedTime(_ time: TimeInterval?) -> String {
         guard let time = time else { return "--:--" }
         let minutes = Int(time) / 60
@@ -423,131 +421,214 @@ class GameManager: ObservableObject {
     }
 }
 
+@MainActor 
 class ThemeManager: ObservableObject {
-    // MARK: - Published Properties
     @Published var themes: [Theme]
     @Published var currentTheme: Theme
-    @Published private(set) var purchasedThemeIDs: Set<String>
+    @Published private(set) var purchasedThemeIDs: Set<String> 
 
-    // MARK: - Private Properties
+    @Published var storeKitProducts: [Product] = [] 
+    @Published var storeKitError: StoreKitError? = nil
+    @Published var isStoreLoading: Bool = false
+
     private var cancellables = Set<AnyCancellable>()
+    private let storeKitManager = StoreKitManager.shared 
+    
+    private let settingsManagerInstance: SettingsManager
+    private var initialAuthCheckCompleted = false
     private let currentThemeIDKey = "currentThemeID"
-    private let locallyKnownPaidThemeIDsKey = "locallyKnownPaidThemeIDs"
-    private let settingsManagerInstance: SettingsManager 
-    private var initialAuthCheckCompleted = false // Flag to manage initial auth sync
+    // This key is referenced by AuthManager to clear UserDefaults upon account change.
+    static let locallyKnownPaidThemeIDsKey = "locallyKnownPaidThemeIDs"
 
-    // MARK: - Initialization
+
     init(authManager: AuthManager, settingsManager: SettingsManager, availableThemes: [Theme] = AppThemeRepository.allThemes) {
         self.settingsManagerInstance = settingsManager
         self.themes = availableThemes
         
         let fallbackTheme = Theme(id: "fallback", name: "备用", isPremium: false, backgroundColor: CodableColor(color: .gray), sliderColor: CodableColor(color: .secondary), sliderTextColor: CodableColor(color: .black), boardBackgroundColor: CodableColor(color: .white), boardGridLineColor: CodableColor(color: Color(.systemGray)))
-        let defaultTheme = availableThemes.first(where: { $0.id == "default" }) ?? fallbackTheme
-        self._currentTheme = Published(initialValue: defaultTheme) // Start with a sensible default
+        let defaultThemeToSet = availableThemes.first(where: { $0.id == "default" }) ?? fallbackTheme
         
-        var tempPurchasedIDs = Set(availableThemes.filter { !$0.isPremium }.map { $0.id })
-        let localPaidIDsArray = UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? []
-        tempPurchasedIDs.formUnion(Set(localPaidIDsArray))
-        self._purchasedThemeIDs = Published(initialValue: tempPurchasedIDs)
+        // Initialize purchasedThemeIDs with only free themes.
+        // Paid themes will be loaded based on AuthManager.currentUser state.
+        let initialPurchased = Set(availableThemes.filter { !$0.isPremium }.map { $0.id })
+        self._purchasedThemeIDs = Published(initialValue: initialPurchased)
+        self._currentTheme = Published(initialValue: defaultThemeToSet)
 
-        print("ThemeManager init: Initial purchasedThemeIDs (free + local): \(self.purchasedThemeIDs)")
+        print("ThemeManager init: Initial purchasedThemeIDs (only free themes): \(self.purchasedThemeIDs)")
         
-        // Attempt to set current theme based on saved ID and current knowledge of purchases
-        // This will be re-evaluated if auth state changes.
-        trySetInitialCurrentTheme(authManager: authManager)
+        storeKitManager.purchaseOrRestoreSuccessfulPublisher
+            .receive(on: DispatchQueue.main) 
+            .sink { [weak self] processedProductIDs in 
+                guard let self = self else { return }
+                print("ThemeManager: Received successful purchase/restore for StoreKit Product IDs: \(processedProductIDs)")
+                self.handleSuccessfulStoreKitProcessing(storeKitProductIDs: processedProductIDs, authManager: authManager)
+            }
+            .store(in: &cancellables) 
+        
+        storeKitManager.$fetchedProducts
+            .receive(on: DispatchQueue.main)
+            .assign(to: \.storeKitProducts, on: self)
+            .store(in: &cancellables)
 
+        storeKitManager.$isLoading
+            .receive(on: DispatchQueue.main)
+            .assign(to: \.isStoreLoading, on: self)
+            .store(in: &cancellables)
+
+        storeKitManager.$error
+            .receive(on: DispatchQueue.main)
+            .assign(to: \.storeKitError, on: self)
+            .store(in: &cancellables)
+        
         authManager.$currentUser
             .receive(on: DispatchQueue.main)
             .sink { [weak self] userProfile in
                 guard let self = self else { return }
-                print("ThemeManager: AuthManager.currentUser changed (is now \(userProfile == nil ? "nil" : "available")).")
-                self.initialAuthCheckCompleted = true 
+                print("ThemeManager: AuthManager.currentUser changed. New profile ID: \(userProfile?.id ?? "nil")")
+                self.initialAuthCheckCompleted = true
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
+                Task { 
+                    if self.settingsManagerInstance.useiCloudLogin { 
+                        await self.fetchSKProducts()
+                        await self.storeKitManager.checkForCurrentEntitlements() 
+                    }
+                }
             }
             .store(in: &cancellables)
         
-        settingsManagerInstance.objectWillChange
-            .receive(on: DispatchQueue.main)
+        settingsManagerInstance.objectWillChange 
+            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main) 
             .sink { [weak self] _ in
                 guard let self = self else { return }
-                let iCloudSettingChanged = self.settingsManagerInstance.useiCloudLogin // Get current value
+                let iCloudSettingChanged = self.settingsManagerInstance.useiCloudLogin
                 print("ThemeManager: SettingsManager's useiCloudLogin might have changed to \(iCloudSettingChanged).")
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
+                Task {
+                     if iCloudSettingChanged { 
+                         await self.fetchSKProducts()
+                         await self.storeKitManager.checkForCurrentEntitlements()
+                     } else if !iCloudSettingChanged {
+                         self.storeKitProducts = []
+                     }
+                }
             }
             .store(in: &cancellables)
 
-        // If authManager.currentUser is already available at the end of init,
-        // ensure the theme state is fully up-to-date.
-        if authManager.currentUser != nil && !self.initialAuthCheckCompleted {
-            print("ThemeManager init: currentUser available immediately. Triggering initial full rebuild and theme refresh.")
-            self.initialAuthCheckCompleted = true
-            self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
-        } else if authManager.currentUser == nil {
-             self.initialAuthCheckCompleted = false // Ensure sink will run fully first time
+        Task {
+            if settingsManagerInstance.useiCloudLogin {
+                await fetchSKProducts()
+                await storeKitManager.checkForCurrentEntitlements() 
+            }
         }
         print("ThemeManager init: Fully initialized. Current theme: \(self.currentTheme.name)")
     }
-
-    private func trySetInitialCurrentTheme(authManager: AuthManager) {
-        let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
-        var themeToSet: Theme? = nil
-
-        if let themeID = savedThemeID, let candidate = themes.first(where: { $0.id == themeID }) {
-            // Build a temporary complete set of purchased IDs for this initial check
-            var currentKnownPurchases = self.purchasedThemeIDs // (free + local)
-            if settingsManagerInstance.useiCloudLogin, let user = authManager.currentUser {
-                currentKnownPurchases.formUnion(user.purchasedThemeIDs)
-            }
-
-            if !candidate.isPremium || currentKnownPurchases.contains(candidate.id) {
-                themeToSet = candidate
-                print("ThemeManager trySetInitialCurrentTheme: Setting to saved theme '\(candidate.name)' based on current knowledge.")
-            } else {
-                print("ThemeManager trySetInitialCurrentTheme: Saved theme '\(candidate.name)' not considered purchased with current knowledge. Will use default.")
-            }
+    
+    func fetchSKProducts() async {
+        guard settingsManagerInstance.useiCloudLogin else {
+            print("ThemeManager fetchSKProducts: iCloud login is disabled. Skipping fetch.")
+            self.storeKitProducts = []
+            return
+        }
+        let productIDs = Set(themes.compactMap { $0.isPremium ? $0.productID : nil })
+        if !productIDs.isEmpty {
+            print("ThemeManager: Requesting product information from StoreKit for IDs: \(productIDs)")
+            await storeKitManager.fetchProducts(productIDs: productIDs)
         } else {
-            print("ThemeManager trySetInitialCurrentTheme: No valid saved theme ID. Will use default.")
+            print("ThemeManager: No premium themes with product IDs found to fetch.")
+        }
+    }
+
+    func purchaseTheme(_ theme: Theme) async {
+        guard settingsManagerInstance.useiCloudLogin else {
+            print("ThemeManager purchaseTheme: iCloud login is disabled. Cannot purchase.")
+            self.storeKitError = .userCannotMakePayments 
+            return
+        }
+        guard theme.isPremium, let productID = theme.productID else {
+            print("ThemeManager: Theme \(theme.name) is not premium or has no product ID.")
+            return
         }
         
-        let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
-        self.currentTheme = themeToSet ?? defaultTheme
-
-        // Ensure UserDefaults reflects the chosen theme, even if it's the default.
-        // This is important if savedThemeID was invalid and we fell back to default.
-        if UserDefaults.standard.string(forKey: currentThemeIDKey) != self.currentTheme.id {
-             UserDefaults.standard.set(self.currentTheme.id, forKey: currentThemeIDKey)
-             print("ThemeManager trySetInitialCurrentTheme: Updated UserDefaults for currentThemeID to '\(self.currentTheme.id)'")
+        if storeKitProducts.first(where: { $0.id == productID }) == nil {
+            print("ThemeManager: Product \(productID) for theme \(theme.name) not found in local cache. Fetching products first.")
+            await fetchSKProducts() 
         }
-        print("ThemeManager trySetInitialCurrentTheme: Final initial current theme: \(self.currentTheme.name)")
+
+        if let product = storeKitProducts.first(where: { $0.id == productID }) {
+            print("ThemeManager: Attempting to purchase product: \(product.id) for theme \(theme.name)")
+            await storeKitManager.purchase(product)
+        } else {
+            print("ThemeManager: Product ID \(productID) for theme \(theme.name) not found in fetched StoreKit products even after attempting fetch.")
+            self.storeKitError = .productsNotFound
+        }
+    }
+
+    func restoreThemePurchases() async {
+        guard settingsManagerInstance.useiCloudLogin else {
+            print("ThemeManager restoreThemePurchases: iCloud login is disabled. Cannot restore.")
+            self.storeKitError = .userCannotMakePayments 
+            return
+        }
+        print("ThemeManager: Requesting sync/restore purchases from StoreKit.")
+        await storeKitManager.syncTransactions()
+    }
+    
+    private func handleSuccessfulStoreKitProcessing(storeKitProductIDs: Set<String>, authManager: AuthManager) {
+        print("ThemeManager: Handling successful StoreKit processing for product IDs: \(storeKitProductIDs)")
+        var newlyProcessedAppThemeIDs = Set<String>() 
+
+        for skProductID in storeKitProductIDs {
+            if let theme = themes.first(where: { $0.productID == skProductID && $0.isPremium }) {
+                newlyProcessedAppThemeIDs.insert(theme.id) 
+            } else {
+                print("ThemeManager WARNING: Received a StoreKit product ID '\(skProductID)' that doesn't map to any known premium theme's productID.")
+            }
+        }
+
+        let oldPurchasedIDs = self.purchasedThemeIDs
+        self.purchasedThemeIDs.formUnion(newlyProcessedAppThemeIDs) 
+
+        let purchasedIDsActuallyChanged = (self.purchasedThemeIDs != oldPurchasedIDs)
+
+        if purchasedIDsActuallyChanged {
+             print("ThemeManager: purchasedThemeIDs (Theme.id) updated due to StoreKit: \(self.purchasedThemeIDs)")
+            print("ThemeManager: Syncing updated purchased themes to CloudKit via AuthManager.")
+            authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs) 
+
+            // Auto-apply logic only if purchased IDs actually changed
+            if newlyProcessedAppThemeIDs.count == 1, 
+               let singleNewThemeID = newlyProcessedAppThemeIDs.first,
+               let themeToApply = themes.first(where: {$0.id == singleNewThemeID}),
+               currentTheme.id != themeToApply.id {
+                setCurrentTheme(themeToApply)
+                print("ThemeManager: Automatically applied newly purchased/restored theme: \(themeToApply.name)")
+            }
+        } else {
+            print("ThemeManager: No new themes were added from StoreKit processing, or processed themes were already known.")
+        }
+        self.storeKitError = nil 
     }
 
     private func rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: AuthManager) {
-        var newPurchased = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
-        let localPaidIDsArray = UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? []
-        newPurchased.formUnion(Set(localPaidIDsArray))
+        var newPurchased = Set(self.themes.filter { !$0.isPremium }.map { $0.id }) 
 
         if self.settingsManagerInstance.useiCloudLogin, let userProfile = authManager.currentUser {
             newPurchased.formUnion(userProfile.purchasedThemeIDs)
-            let newCloudThemes = userProfile.purchasedThemeIDs.subtracting(Set(localPaidIDsArray))
-            if !newCloudThemes.isEmpty {
-                var updatedLocalPaidIDs = Set(localPaidIDsArray)
-                updatedLocalPaidIDs.formUnion(newCloudThemes)
-                UserDefaults.standard.set(Array(updatedLocalPaidIDs), forKey: locallyKnownPaidThemeIDsKey)
-                print("ThemeManager rebuild: Synced new paid themes from CloudKit to local cache: \(newCloudThemes)")
-            }
+            print("ThemeManager rebuild (iCloud user \(userProfile.id)): Loaded \(userProfile.purchasedThemeIDs.count) themes from CloudKit profile. Combined with free: \(newPurchased.count)")
+        } else {
+            print("ThemeManager rebuild (No iCloud user or iCloud disabled): Only free themes considered purchased from app's perspective.")
         }
         
         if self.purchasedThemeIDs != newPurchased {
             self.purchasedThemeIDs = newPurchased
-            print("ThemeManager: purchasedThemeIDs rebuilt. New set: \(self.purchasedThemeIDs)")
+            print("ThemeManager: purchasedThemeIDs rebuilt. Final set: \(self.purchasedThemeIDs)")
         }
 
-        // After purchased IDs are updated, try to apply the saved theme preference or default
         let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
         var themeToRestore: Theme? = nil
 
         if let themeID = savedThemeID, let candidate = themes.first(where: { $0.id == themeID }) {
-            if self.isThemePurchased(candidate) { // Check with NEWLY built purchasedThemeIDs
+            if self.isThemePurchased(candidate) { 
                 themeToRestore = candidate
             }
         }
@@ -555,64 +636,50 @@ class ThemeManager: ObservableObject {
         let themeToActuallySet: Theme
         if let validRestoredTheme = themeToRestore {
             themeToActuallySet = validRestoredTheme
-            if self.currentTheme.id != themeToActuallySet.id {
-                 print("ThemeManager rebuild: Restoring saved theme '\(themeToActuallySet.name)' as it's now purchased.")
-            } else {
-                 print("ThemeManager rebuild: Saved theme '\(themeToActuallySet.name)' is already current and purchased.")
-            }
         } else {
             let defaultThemeToSet = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
             themeToActuallySet = defaultThemeToSet
-            if self.currentTheme.id != themeToActuallySet.id {
-                 print("ThemeManager rebuild: Saved theme not restorable or current theme '\(self.currentTheme.name)' no longer purchased. Reverting to default '\(themeToActuallySet.name)'.")
-            } else if let unwrappedSavedThemeID = savedThemeID, unwrappedSavedThemeID != defaultThemeToSet.id { // If a different theme was saved but is no longer valid
-                 print("ThemeManager rebuild: Previously saved theme '\(savedThemeID!)' is no longer valid. Reverting to default '\(defaultThemeToSet.name)'.")
+            if savedThemeID != nil && savedThemeID != defaultThemeToSet.id { 
+                 print("ThemeManager rebuild: Previously selected theme '\(savedThemeID!)' is no longer purchased or invalid. Reverting to default '\(defaultThemeToSet.name)'.")
             }
         }
         
-        // Crucially, call setCurrentTheme to update the @Published currentTheme and persist to UserDefaults
-        self.setCurrentTheme(themeToActuallySet)
+        if currentTheme.id != themeToActuallySet.id {
+             setCurrentTheme(themeToActuallySet)
+        } else if !isThemePurchased(currentTheme) { 
+             let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
+             print("ThemeManager rebuild: Current theme '\(currentTheme.name)' is no longer purchased. Reverting to default '\(defaultTheme.name)'.")
+             setCurrentTheme(defaultTheme)
+        }
     }
-
-
-    // MARK: - Public Methods
+    
     func setCurrentTheme(_ theme: Theme) {
         guard themes.contains(where: { $0.id == theme.id }) else {
             print("ThemeManager: Attempted to set an unknown theme ('\(theme.name)'). Ignoring.")
             return
         }
 
-        // Check if the theme can be applied based on purchase status and iCloud setting for paid themes
         let canApply: Bool
         if theme.isPremium {
-            // Paid themes can only be applied if they are in purchasedThemeIDs AND (if iCloud is the mechanism for purchase) iCloud is enabled.
-            // The isThemePurchased() already covers the "is it in purchasedThemeIDs" part.
-            // The additional constraint from the user was: "不使用icloud登录则无法购买和应用付费主题"
-            // So, for paid themes, settingsManagerInstance.useiCloudLogin must be true to apply.
-            // However, our current isThemePurchased already reflects a combination of local and cloud.
-            // The critical part is that `purchasedThemeIDs` is built correctly.
-            // If iCloud is off, `purchasedThemeIDs` won't have cloud-only themes.
-            // If a theme is in `purchasedThemeIDs` (meaning it's free, or local_paid, or cloud_paid_and_icloud_on), it should be settable.
-            canApply = self.isThemePurchased(theme)
+            canApply = self.isThemePurchased(theme) 
         } else {
-            canApply = true // Free themes can always be applied
+            canApply = true
         }
 
         guard canApply else {
-            print("ThemeManager setCurrentTheme: Cannot apply theme '\(theme.name)'. It's premium and not considered purchased/accessible under current settings. (iCloud: \(settingsManagerInstance.useiCloudLogin), Purchased: \(purchasedThemeIDs.contains(theme.id)))")
-            // If an invalid theme was attempted, and it's not already the default, revert to default.
-            let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
-            if self.currentTheme.id != defaultTheme.id {
-                self.currentTheme = defaultTheme // Update @Published property
-                UserDefaults.standard.set(defaultTheme.id, forKey: currentThemeIDKey) // Persist
-                print("ThemeManager setCurrentTheme: Reverted to default theme '\(defaultTheme.name)'.")
+            print("ThemeManager setCurrentTheme: Cannot apply theme '\(theme.name)'. It's premium and not purchased/accessible.")
+            let defaultThemeToSet = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
+            if self.currentTheme.id != defaultThemeToSet.id {
+                self.currentTheme = defaultThemeToSet
+                UserDefaults.standard.set(defaultThemeToSet.id, forKey: currentThemeIDKey)
+                print("ThemeManager setCurrentTheme: Reverted to default theme '\(defaultThemeToSet.name)'.")
             }
             return
         }
 
         if currentTheme.id != theme.id {
-            currentTheme = theme // Update @Published property
-            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey) // Persist
+            currentTheme = theme
+            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey)
             print("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
         }
     }
@@ -620,66 +687,9 @@ class ThemeManager: ObservableObject {
     func isThemePurchased(_ theme: Theme) -> Bool {
         return !theme.isPremium || purchasedThemeIDs.contains(theme.id)
     }
-
-    func themeDidGetPurchased(themeID: String, authManager: AuthManager) {
-        guard settingsManagerInstance.useiCloudLogin else {
-            print("ThemeManager: Purchase attempt for '\(themeID)' while iCloud login is disabled. Purchase flow should be blocked by UI.")
-            // Potentially show an alert to the user here if this is somehow reached.
-            return
-        }
-        guard let purchasedThemeObject = themes.first(where: { $0.id == themeID && $0.isPremium }) else {
-            print("ThemeManager: Attempted to mark non-existent or free theme ID '\(themeID)' as purchased. Ignoring.")
-            return
-        }
-
-        var localPaidIDs = Set(UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? [])
-        if localPaidIDs.insert(themeID).inserted {
-            UserDefaults.standard.set(Array(localPaidIDs), forKey: locallyKnownPaidThemeIDsKey)
-            print("ThemeManager: Theme ID '\(themeID)' added to local paid cache.")
-        }
-
-        if self.purchasedThemeIDs.insert(themeID).inserted {
-             print("ThemeManager: Theme ID '\(themeID)' added to published purchasedThemeIDs.")
-        }
-        
-        // Sync with CloudKit since iCloud login is enabled for purchase
-        authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs) 
-        
-        setCurrentTheme(purchasedThemeObject)
-    }
-    
-    func themesDidGetRestored(restoredThemeIDsFromStoreKit: Set<String>, authManager: AuthManager) {
-        guard settingsManagerInstance.useiCloudLogin else {
-            print("ThemeManager: Restore attempt while iCloud login is disabled. Restore flow should be blocked by UI.")
-            return
-        }
-
-        var localPaidIDs = Set(UserDefaults.standard.array(forKey: locallyKnownPaidThemeIDsKey) as? [String] ?? [])
-        var didUpdateAnySet = false
-
-        for themeID in restoredThemeIDsFromStoreKit {
-            if let theme = themes.first(where: { $0.id == themeID && $0.isPremium }) {
-                if localPaidIDs.insert(theme.id).inserted {
-                    print("ThemeManager: Restored theme ID '\(theme.id)' added to local paid cache.")
-                    didUpdateAnySet = true
-                }
-                if self.purchasedThemeIDs.insert(theme.id).inserted {
-                    print("ThemeManager: Restored theme ID '\(theme.id)' added to published purchasedThemeIDs.")
-                    didUpdateAnySet = true 
-                }
-            }
-        }
-
-        if didUpdateAnySet {
-            UserDefaults.standard.set(Array(localPaidIDs), forKey: locallyKnownPaidThemeIDsKey) // Save updated local cache
-            print("ThemeManager: Syncing updated purchased themes to CloudKit after restoration.")
-            authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs) // Sync all known
-        } else {
-            print("ThemeManager: No new themes were added from restoration, or restored IDs were not valid premium themes.")
-        }
-    }
 }
 
+// MARK: - AuthManager
 class AuthManager: ObservableObject {
     @Published var currentUser: UserProfile?
     @Published var isLoggedIn: Bool = false
@@ -720,12 +730,21 @@ class AuthManager: ObservableObject {
         }
 
         NotificationCenter.default.publisher(for: .CKAccountChanged)
-            .receive(on: DispatchQueue.main)
+            .receive(on: DispatchQueue.main) // Ensure this runs on main for UI updates
             .sink { [weak self] _ in
                 guard let self = self else { return }
-                print("AuthManager: Received CKAccountChanged notification.")
+                print("AuthManager: Received CKAccountChanged notification. Clearing previous user session.")
                 self.iCloudUserActualRecordID = nil 
+
+                self.currentUser = nil
+                self.isLoggedIn = false
                 
+                // Dispatch UserDefaults removal to main actor to resolve concurrency warning
+                DispatchQueue.main.async {
+                    UserDefaults.standard.removeObject(forKey: ThemeManager.locallyKnownPaidThemeIDsKey)
+                    print("AuthManager: Cleared ThemeManager.locallyKnownPaidThemeIDsKey from UserDefaults due to account change.")
+                }
+
                 let useiCloudCurrent = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
                 if useiCloudCurrent {
                     print("AuthManager: iCloud account changed, and preference is ON. Re-checking account status and profile.")
@@ -733,7 +752,7 @@ class AuthManager: ObservableObject {
                 } else {
                     print("AuthManager: iCloud account changed, but preference is OFF. Ensuring local session is cleared.")
                     self.clearLocalSessionForDisablediCloud(reason: "Account changed while preference is off.")
-                    self.errorMessage = self.localizedErrorMessageForDisablediCloud()
+                    // self.errorMessage = self.localizedErrorMessageForDisablediCloud() // This might be set by clearLocalSession or checkiCloud...
                 }
             }
             .store(in: &cancellables)
@@ -761,7 +780,7 @@ class AuthManager: ObservableObject {
                 if self.iCloudAccountStatus == .available {
                    self.iCloudAccountStatus = .couldNotDetermine 
                 }
-                self.objectWillChange.send() 
+                // self.objectWillChange.send() // Not needed as @Published properties will trigger this
             }
         }
     }
@@ -774,7 +793,7 @@ class AuthManager: ObservableObject {
             self.errorMessage = nil 
             self.isLoading = true 
             if self.iCloudAccountStatus == .couldNotDetermine && self.currentUser == nil { 
-                 self.iCloudAccountStatus = .couldNotDetermine 
+                 // self.iCloudAccountStatus = .couldNotDetermine // No need to reset if already this
             }
             print("AuthManager: Preference ON. Attempting to check iCloud status and fetch profile.")
             checkiCloudAccountStatusAndFetchProfile()
@@ -806,6 +825,7 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager accountStatus callback: iCloud login preference turned OFF during async. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during account status check.")
+                    self.isLoading = false // Ensure loading state is reset
                     return
                 }
 
@@ -854,6 +874,9 @@ class AuthManager: ObservableObject {
         }
 
         print("AuthManager: Attempting to fetch iCloud User Record ID (preference is ON)...")
+        // Ensure isLoading is true if we reach here and it wasn't set by the caller
+        if !self.isLoading { self.isLoading = true }
+
 
         container.fetchUserRecordID { [weak self] (recordID, error) in
             DispatchQueue.main.async {
@@ -863,16 +886,18 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager fetchUserRecordID callback: iCloud login preference turned OFF during async. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during user ID fetch.")
+                    self.isLoading = false // Ensure loading state is reset
                     return
                 }
                 let sm = SettingsManager() 
                 if let error = error {
-                    print("AuthManager: Error fetching iCloud User Record ID: \(error.localizedDescription)")
+                    print("AuthManager DEBUG: Fetched iCloud User Record ID: NIL, Error: \(error.localizedDescription)")
                     self.errorMessage = "\(sm.localizedString(forKey: "iCloudFetchUserFailed")): \(error.localizedDescription)" 
                     self.iCloudUserActualRecordID = nil; self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                     return
                 }
 
+                print("AuthManager DEBUG: Fetched iCloud User Record ID: \(recordID?.recordName ?? "NIL"), Error: No error")
                 if let recordID = recordID {
                     print("AuthManager: Successfully fetched iCloud User Record ID: \(recordID.recordName)")
                     self.iCloudUserActualRecordID = recordID
@@ -894,6 +919,7 @@ class AuthManager: ObservableObject {
             return
         }
         print("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName) (preference is ON)...")
+        print("AuthManager DEBUG: Querying UserProfile for iCloudUserRecordName: \(iCloudRecordName)")
         let sm = SettingsManager() 
 
         let predicate = NSPredicate(format: "iCloudUserRecordName == %@", iCloudRecordName)
@@ -907,6 +933,7 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager fetchOrCreateUserProfile callback: iCloud login preference turned OFF. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile fetch/create.")
+                    self.isLoading = false // Ensure loading state is reset
                     return
                 }
 
@@ -916,6 +943,7 @@ class AuthManager: ObservableObject {
                         let matchedRecordID = firstMatch.0
                         switch firstMatch.1 {
                         case .success(let existingUserProfileRecord):
+                            print("AuthManager DEBUG: Found existing UserProfile. RecordName: \(existingUserProfileRecord.recordID.recordName)")
                             print("AuthManager: Found existing UserProfile record: \(existingUserProfileRecord.recordID.recordName)")
                             if let userProfile = UserProfile(from: existingUserProfileRecord) {
                                 self.currentUser = userProfile
@@ -933,6 +961,7 @@ class AuthManager: ObservableObject {
                             self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                         }
                     } else {
+                        print("AuthManager DEBUG: No UserProfile found. Attempting to create new one for iCloudUserRecordName: \(iCloudRecordName)")
                         print("AuthManager: No UserProfile found for iCloud User \(iCloudRecordName). Creating new UserProfile.")
                         self.createUserProfile(linkedToICloudUserRecordName: iCloudRecordName)
                     }
@@ -966,11 +995,13 @@ class AuthManager: ObservableObject {
         privateDB.save(newUserProfileCKRecord) { [weak self] (savedRecord, error) in
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
+                print("AuthManager DEBUG: Save new UserProfile result. Saved Record ID: \(savedRecord?.recordID.recordName ?? "NIL"), Error: \(error?.localizedDescription ?? "No error")")
 
                 let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false 
                 guard currentiCloudPreference else { 
                     print("AuthManager createUserProfile callback: iCloud login preference turned OFF. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile creation.")
+                    self.isLoading = false // Ensure loading state is reset
                     return
                 }
 
@@ -1135,7 +1166,7 @@ class SettingsManager: ObservableObject {
     @AppStorage("isSoundEffectsEnabled") var soundEffectsEnabled: Bool = true
     @AppStorage("isMusicEnabled") var musicEnabled: Bool = true
     @AppStorage("isHapticsEnabled") var hapticsEnabled: Bool = true
-    @AppStorage(AuthManager.useiCloudLoginKey) var useiCloudLogin: Bool = false // DEFAULT TO FALSE
+    @AppStorage(AuthManager.useiCloudLoginKey) var useiCloudLogin: Bool = false 
 
     private let translations: [String: [String: String]] = [
         "en": [
@@ -1184,13 +1215,13 @@ class SettingsManager: ObservableObject {
             "iCloudSaveProfileErrorFetch": "Failed to save profile (error fetching existing)",
             "iCloudSaveProfileErrorWrite": "Failed to save user profile (write error)",
             "loggedOutMessage": "You have been signed out from the app.",
-            "iCloudCheckingStatus": "Checking iCloud Status...", // For MainMenuView
-            "iCloudUser": "iCloud User", // For MainMenuView
-            "iCloudNoAccountDetailed": "Not logged into iCloud. Go to device settings to enable cloud features.", // For MainMenuView
-            "iCloudConnectionError": "Cannot connect to iCloud.", // For MainMenuView
-            "iCloudSyncError": "iCloud available, but app could not sync user data.", // For MainMenuView
-            "iCloudLoginPrompt": "iCloud features require login. Check settings.", // For MainMenuView
-            "iCloudDisabledInSettings": "iCloud login is disabled. Cloud features are unavailable." // For MainMenuView
+            "iCloudCheckingStatus": "Checking iCloud Status...", 
+            "iCloudUser": "iCloud User", 
+            "iCloudNoAccountDetailed": "Not logged into iCloud. Go to device settings to enable cloud features.", 
+            "iCloudConnectionError": "Cannot connect to iCloud.", 
+            "iCloudSyncError": "iCloud available, but app could not sync user data.", 
+            "iCloudLoginPrompt": "iCloud features require login. Check settings.", 
+            "iCloudDisabledInSettings": "iCloud login is disabled. Cloud features are unavailable." 
         ],
         "zh": [
             "gameTitle": "华容道", "startGame": "开始游戏", "continueGame": "继续游戏",
@@ -1238,13 +1269,13 @@ class SettingsManager: ObservableObject {
             "iCloudSaveProfileErrorFetch": "保存配置失败（获取现有配置错误）",
             "iCloudSaveProfileErrorWrite": "保存用户配置失败（写入错误）",
             "loggedOutMessage": "您已从此应用注销。",
-            "iCloudCheckingStatus": "正在检查iCloud状态...", // For MainMenuView
-            "iCloudUser": "iCloud用户", // For MainMenuView
-            "iCloudNoAccountDetailed": "未登录iCloud账户。请前往设备设置登录以使用云功能。", // For MainMenuView
-            "iCloudConnectionError": "无法连接到iCloud。", // For MainMenuView
-            "iCloudSyncError": "iCloud可用，但应用未能同步用户数据。", // For MainMenuView
-            "iCloudLoginPrompt": "iCloud功能需要登录。请检查设置。", // For MainMenuView
-            "iCloudDisabledInSettings": "iCloud登录已禁用。云同步功能不可用。" // For MainMenuView
+            "iCloudCheckingStatus": "正在检查iCloud状态...", 
+            "iCloudUser": "iCloud用户", 
+            "iCloudNoAccountDetailed": "未登录iCloud账户。请前往设备设置登录以使用云功能。", 
+            "iCloudConnectionError": "无法连接到iCloud。", 
+            "iCloudSyncError": "iCloud可用，但应用未能同步用户数据。", 
+            "iCloudLoginPrompt": "iCloud功能需要登录。请检查设置。", 
+            "iCloudDisabledInSettings": "iCloud登录已禁用。云同步功能不可用。" 
         ]
     ]
 
@@ -1260,6 +1291,18 @@ struct SoundManager {
 
     static func playSound(named soundName: String, type: String = "mp3", settings: SettingsManager) {
         guard settings.soundEffectsEnabled else { return }
+        // Implementation for playing sound (ensure sound file is in bundle)
+        // Example:
+        // guard let url = Bundle.main.url(forResource: soundName, withExtension: type) else {
+        //     print("SoundManager: Sound file '\(soundName).\(type)' not found.")
+        //     return
+        // }
+        // do {
+        //     audioPlayer = try AVAudioPlayer(contentsOf: url)
+        //     audioPlayer?.play()
+        // } catch {
+        //     print("SoundManager: Could not load sound file: \(error)")
+        // }
         print("SoundManager: Playing sound '\(soundName)' (if enabled and sound file exists)")
     }
 
@@ -1275,5 +1318,240 @@ struct SoundManager {
         hapticImpactGenerator.prepare()
         hapticImpactGenerator.impactOccurred()
         print("SoundManager: Playing impact haptic (if enabled)")
+    }
+}
+
+enum StoreKitError: Error, LocalizedError, Equatable { 
+    case unknown
+    case productIDsEmpty
+    case productsNotFound
+    case purchaseFailed(String?) 
+    case purchaseCancelled
+    case purchasePending
+    case transactionVerificationFailed
+    case failedToLoadCurrentEntitlements(String?) 
+    case userCannotMakePayments
+
+    static func == (lhs: StoreKitError, rhs: StoreKitError) -> Bool {
+        switch (lhs, rhs) {
+        case (.unknown, .unknown): return true
+        case (.productIDsEmpty, .productIDsEmpty): return true
+        case (.productsNotFound, .productsNotFound): return true
+        case (.purchaseFailed(let lMsg), .purchaseFailed(let rMsg)): return lMsg == rMsg
+        case (.purchaseCancelled, .purchaseCancelled): return true
+        case (.purchasePending, .purchasePending): return true
+        case (.transactionVerificationFailed, .transactionVerificationFailed): return true
+        case (.failedToLoadCurrentEntitlements(let lMsg), .failedToLoadCurrentEntitlements(let rMsg)): return lMsg == rMsg
+        case (.userCannotMakePayments, .userCannotMakePayments): return true
+        default: return false
+        }
+    }
+
+    var errorDescription: String? {
+        let sm = SettingsManager() // For localization
+        switch self {
+        case .unknown: return sm.localizedString(forKey: "storeKitErrorUnknown") // Add these keys to SettingsManager
+        case .productIDsEmpty: return sm.localizedString(forKey: "storeKitErrorProductIDsEmpty")
+        case .productsNotFound: return sm.localizedString(forKey: "storeKitErrorProductsNotFound")
+        case .purchaseFailed(let msg):
+            let base = sm.localizedString(forKey: "storeKitErrorPurchaseFailed")
+            return msg != nil ? "\(base): \(msg!)" : base
+        case .purchaseCancelled: return sm.localizedString(forKey: "storeKitErrorPurchaseCancelled")
+        case .purchasePending: return sm.localizedString(forKey: "storeKitErrorPurchasePending")
+        case .transactionVerificationFailed: return sm.localizedString(forKey: "storeKitErrorTransactionVerificationFailed")
+        case .failedToLoadCurrentEntitlements(let msg):
+            let base = sm.localizedString(forKey: "storeKitErrorFailedToLoadEntitlements")
+            return msg != nil ? "\(base): \(msg!)" : base
+        case .userCannotMakePayments: return sm.localizedString(forKey: "storeKitErrorUserCannotMakePayments")
+        }
+    }
+
+    static func purchaseFailed(_ error: Error?) -> StoreKitError {
+        return .purchaseFailed(error?.localizedDescription)
+    }
+    static func failedToLoadCurrentEntitlements(_ error: Error) -> StoreKitError {
+        return .failedToLoadCurrentEntitlements(error.localizedDescription)
+    }
+}
+
+@MainActor 
+class StoreKitManager: ObservableObject {
+    static let shared = StoreKitManager()
+
+    @Published var fetchedProducts: [Product] = []
+    @Published var isLoading: Bool = false
+    @Published var error: StoreKitError? = nil 
+
+    let purchaseOrRestoreSuccessfulPublisher = PassthroughSubject<Set<String>, Never>()
+
+    private var transactionListener: Task<Void, Error>? = nil
+
+    private init() {
+        print("StoreKitManager (StoreKit 2): Initialized.")
+        transactionListener = listenForTransactions()
+    }
+
+    deinit {
+        transactionListener?.cancel()
+        print("StoreKitManager (StoreKit 2): Deinitialized and transaction listener cancelled.")
+    }
+
+    func fetchProducts(productIDs: Set<String>) async {
+        guard !productIDs.isEmpty else {
+            print("StoreKitManager: No product IDs provided to fetch.")
+            self.error = .productIDsEmpty
+            return
+        }
+        print("StoreKitManager: Fetching products for IDs: \(productIDs)")
+        self.isLoading = true
+        self.error = nil
+
+        do {
+            let storeProducts = try await Product.products(for: productIDs)
+            self.fetchedProducts = storeProducts
+            print("StoreKitManager: Fetched products: \(self.fetchedProducts.map { $0.id })")
+            if self.fetchedProducts.isEmpty && !productIDs.isEmpty {
+                print("StoreKitManager: No products returned from App Store for requested IDs.")
+                self.error = .productsNotFound
+            }
+        } catch {
+            print("StoreKitManager: Failed to fetch products: \(error)")
+            self.error = .productsNotFound 
+        }
+        self.isLoading = false
+    }
+
+    func purchase(_ product: Product) async {
+        guard AppStore.canMakePayments else {
+            print("StoreKitManager: User cannot make payments.")
+            self.error = .userCannotMakePayments
+            return
+        }
+        
+        print("StoreKitManager: Initiating purchase for product: \(product.id)")
+        self.isLoading = true
+        self.error = nil
+
+        do {
+            let result = try await product.purchase()
+            // handlePurchaseResult is now @MainActor implicitly because StoreKitManager is @MainActor
+            try await handlePurchaseResult(result, for: product.id)
+        } catch let actualStoreKitError as StoreKit.StoreKitError { 
+             print("StoreKitManager: Purchase failed for \(product.id) with StoreKitError: \(actualStoreKitError.localizedDescription) (\(actualStoreKitError))")
+             if case .userCancelled = actualStoreKitError {
+                 self.error = .purchaseCancelled
+             } else {
+                 self.error = .purchaseFailed(actualStoreKitError) 
+             }
+        } catch { 
+            print("StoreKitManager: Purchase failed for \(product.id) with error: \(error)")
+            self.error = .purchaseFailed(error) 
+        }
+        self.isLoading = false
+    }
+    
+    private func handlePurchaseResult(_ result: Product.PurchaseResult, for productID: Product.ID) async throws {
+        switch result {
+        case .success(let verificationResult):
+            print("StoreKitManager: Purchase successful for \(productID), verifying transaction...")
+            guard let transaction = await self.checkVerified(verificationResult) else {
+                self.error = .transactionVerificationFailed
+                return
+            }
+            print("StoreKitManager: Transaction verified for \(productID). Finishing transaction.")
+            await transaction.finish() 
+            purchaseOrRestoreSuccessfulPublisher.send([transaction.productID])
+
+        case .pending:
+            print("StoreKitManager: Purchase for \(productID) is pending.")
+            self.error = .purchasePending
+
+        case .userCancelled:
+            print("StoreKitManager: User cancelled purchase for \(productID).")
+            self.error = .purchaseCancelled
+        
+        @unknown default:
+            print("StoreKitManager: Unknown purchase result for \(productID).")
+            self.error = .unknown
+        }
+    }
+
+    private func listenForTransactions() -> Task<Void, Error> {
+        return Task.detached { @MainActor [weak self] in 
+            guard let self = self else { return }
+            print("StoreKitManager: Starting transaction listener...")
+            for await verificationResult in Transaction.updates {
+                print("StoreKitManager: Received transaction update.")
+                guard let transaction = await self.checkVerified(verificationResult) else {
+                    print("StoreKitManager: Transaction update verification failed.")
+                    continue
+                }
+
+                if transaction.revocationDate == nil { 
+                     print("StoreKitManager: Verified transaction update for \(transaction.productID). Product type: \(transaction.productType)")
+                     self.purchaseOrRestoreSuccessfulPublisher.send([transaction.productID])
+                } else {
+                     print("StoreKitManager: Transaction for \(transaction.productID) was revoked at \(transaction.revocationDate!).")
+                }
+                
+                await transaction.finish() 
+            }
+        }
+    }
+
+    @discardableResult 
+    private func checkVerified<T>(_ verificationResult: VerificationResult<T>) async -> T? {
+        switch verificationResult {
+        case .unverified(let unverifiedTransaction, let verificationError):
+            print("StoreKitManager: Transaction unverified for \(unverifiedTransaction) with error: \(verificationError.localizedDescription)")
+            return nil
+        case .verified(let verifiedTransaction):
+            return verifiedTransaction 
+        }
+    }
+
+    func syncTransactions() async {
+        print("StoreKitManager: Requesting AppStore.sync() to sync transactions.")
+        self.isLoading = true
+        self.error = nil
+        do {
+            try await AppStore.sync()
+            print("StoreKitManager: AppStore.sync() completed. Updates (if any) will be handled by the transaction listener.")
+            await checkForCurrentEntitlements()
+        } catch {
+            print("StoreKitManager: AppStore.sync() failed with error: \(error)")
+            self.error = .purchaseFailed(error) 
+        }
+        self.isLoading = false
+    }
+    
+    func checkForCurrentEntitlements() async {
+        print("StoreKitManager: Checking for current entitlements...")
+        var successfullyEntitledProductIDs = Set<String>()
+        var entitlementsFound = false
+        
+        for await verificationResult in StoreKit.Transaction.currentEntitlements {
+            entitlementsFound = true
+            
+            let typedResult: VerificationResult<StoreKit.Transaction> = verificationResult
+            guard let transaction = await self.checkVerified(typedResult) else {
+                print("StoreKitManager: Found an unverified current entitlement, skipping.")
+                continue 
+            }
+            
+            if transaction.productType == .nonConsumable && transaction.revocationDate == nil {
+                print("StoreKitManager: Found current entitlement for non-consumable: \(transaction.productID)")
+                successfullyEntitledProductIDs.insert(transaction.productID)
+            }
+        }
+
+        if !entitlementsFound && self.error == nil { 
+            print("StoreKitManager: No current entitlements found after iterating (or iterator was empty).")
+        }
+
+        if !successfullyEntitledProductIDs.isEmpty {
+            print("StoreKitManager: Successfully processed current entitlements for IDs: \(successfullyEntitledProductIDs)")
+            purchaseOrRestoreSuccessfulPublisher.send(successfullyEntitledProductIDs)
+        }
     }
 }

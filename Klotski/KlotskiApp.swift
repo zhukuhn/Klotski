@@ -30,6 +30,8 @@ struct KlotskiApp: App {
         
         // ThemeManager depends on AuthManager and SettingsManager
         _themeManager = StateObject(wrappedValue: ThemeManager(authManager: authMgr, settingsManager: sm))
+
+        _ = StoreKitManager.shared
         
         print("All managers initialized in KlotskiApp init!")
     }
@@ -50,6 +52,9 @@ struct KlotskiApp: App {
                        print("App became active.")
                        // When app becomes active, if iCloud is enabled, good to refresh auth state
                        // as user might have changed iCloud account in device settings.
+                       Task {
+                           await StoreKitManager.shared.checkForCurrentEntitlements()
+                       }
                        if useiCloudCurrent {
                            authManager.refreshAuthenticationState()
                        }

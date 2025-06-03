@@ -141,6 +141,7 @@ struct Theme: Identifiable, Codable, Equatable {
     var name: String // 主题名称
     var isPremium: Bool // 是否为付费主题
     var price: Double? // 付费主题的价格
+    var productID: String? 
 
     // 视觉属性
     var backgroundColor: CodableColor // 背景颜色
@@ -159,7 +160,7 @@ struct Theme: Identifiable, Codable, Equatable {
     var swiftUIScheme: ColorScheme { codableColorScheme.swiftUIScheme }
 
     // 初始化方法已更新，接受 SwiftUI.ColorScheme 并进行转换
-    init(id: String, name: String, isPremium: Bool, price: Double? = nil,
+    init(id: String, name: String, isPremium: Bool, price: Double? = nil, productID: String? = nil,
          backgroundColor: CodableColor, sliderColor: CodableColor,sliderTextColor: CodableColor,
          boardBackgroundColor: CodableColor, boardGridLineColor: CodableColor,
          sliderShape: SliderShape = .roundedRectangle, sliderContent: SliderContentType = .character,
@@ -168,6 +169,7 @@ struct Theme: Identifiable, Codable, Equatable {
         self.name = name
         self.isPremium = isPremium
         self.price = price
+        self.productID = productID
         self.backgroundColor = backgroundColor
         self.sliderColor = sliderColor
         self.sliderTextColor = sliderTextColor
@@ -186,22 +188,22 @@ struct Theme: Identifiable, Codable, Equatable {
 
 struct AppThemeRepository {
     static let allThemes: [Theme] = [
-        Theme(id: "default", name: "默认浅色", isPremium: false,
+        Theme(id: "default", name: "默认浅色", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .white),
               sliderColor: CodableColor(color: .blue), sliderTextColor: CodableColor(color: .white),
               boardBackgroundColor: CodableColor(color: Color(white: 0.9)), boardGridLineColor: CodableColor(color: Color(white: 0.7)),
               fontName: nil, colorScheme: .light),
-        Theme(id: "dark", name: "深邃夜空", isPremium: false,
+        Theme(id: "dark", name: "深邃夜空", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .black),
               sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
               boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
               fontName: nil, colorScheme: .dark),
-        Theme(id: "forest", name: "森林绿意", isPremium: true, price: 6.00,
+        Theme(id: "forest", name: "森林绿意", isPremium: true, price: 1.00, productID: "com.shenlan.Klotski.theme.forest",
               backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
               sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
               boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
               fontName: "Georgia", colorScheme: .light),
-        Theme(id: "ocean", name: "蔚蓝海洋", isPremium: true, price: 6.00,
+        Theme(id: "ocean", name: "蔚蓝海洋", isPremium: true, price: 1.00, productID: "com.shenlan.Klotski.theme.ocean",
               backgroundColor: CodableColor(color: Color(red: 86/255, green: 207/255, blue: 225/255)),
               sliderColor: CodableColor(color: Color(red: 78/255, green: 168/255, blue: 222/255)), sliderTextColor: CodableColor(color: .white),
               boardBackgroundColor: CodableColor(color: Color(red: 180/255, green: 225/255, blue: 235/255)), boardGridLineColor: CodableColor(color: Color(red: 100/255, green: 150/255, blue: 180/255)),

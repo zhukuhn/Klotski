@@ -5,6 +5,7 @@
 //  Created by zhukun on 2025/5/16.
 //
 import SwiftUI
+import StoreKit
 
 // MARK: - MainMenuView
 struct MainMenuView: View {
@@ -28,7 +29,7 @@ struct MainMenuView: View {
                    .padding(.top, 40) // 顶部留白
                    .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用主题颜色
                 
-                //Spacer() // 弹性空间，将按钮推向中心
+                Spacer() // 弹性空间，将按钮推向中心
 
                 // "开始游戏" 按钮
                 Button(action: {
@@ -258,6 +259,20 @@ struct ThemeSelectionView: View {
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var authManager: AuthManager
 
+    @State private var showStoreErrorAlert = false
+    @State private var storeActionError: StoreKitError? = nil {
+        didSet {
+            if storeActionError != nil {
+                showStoreErrorAlert = true
+            }
+        }
+    }
+    
+    // Helper to get SKProduct equivalent for a theme
+    private func storeKitProduct(for theme: Theme) -> Product? {
+        guard theme.isPremium, let productID = theme.productID else { return nil }
+        return themeManager.storeKitProducts.first(where: { $0.id == productID })
+    }
 
     var body: some View {
         List {
@@ -272,21 +287,29 @@ struct ThemeSelectionView: View {
             }
             
             Section {
-                 Button(settingsManager.localizedString(forKey: "restorePurchases")) {
+                 Button(action: {
                     SoundManager.playImpactHaptic(settings: settingsManager)
-                    if settingsManager.useiCloudLogin && authManager.isLoggedIn {
-                        // Placeholder for actual StoreKit restore call
-                        // For now, simulate by calling themesDidGetRestored with an empty set or known test IDs
-                        // let testRestoredIDs: Set<String> = ["forest", "ocean"] // Example
-                        themeManager.themesDidGetRestored(restoredThemeIDsFromStoreKit: [], authManager: authManager)
-                        print("恢复购买按钮被点击 (功能待StoreKit集成)")
-                    } else {
-                        print("恢复购买需要iCloud登录。")
+                    guard settingsManager.useiCloudLogin && authManager.isLoggedIn else {
+                        print("Restore purchases requires iCloud login and user to be logged in.")
+                        self.storeActionError = .userCannotMakePayments // 或更合适的错误
+                        return
                     }
+                    Task {
+                        await themeManager.restoreThemePurchases()
+                        // 错误会通过 themeManager.storeKitError 更新，并触发 alert
+                    }
+                }) {
+                    HStack {
+                         Text(settingsManager.localizedString(forKey: "restorePurchases"))
+                         Spacer()
+                         if themeManager.isStoreLoading && storeKitProduct(for: themeManager.currentTheme) == nil { // 粗略判断是否是全局恢复
+                             ProgressView()
+                         }
+                     }
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color)
                .foregroundColor(settingsManager.useiCloudLogin && authManager.isLoggedIn ? themeManager.currentTheme.sliderColor.color : .gray)
-               .disabled(!settingsManager.useiCloudLogin || !authManager.isLoggedIn) // Corrected: disable if not using iCloud OR not logged in
+               .disabled(!settingsManager.useiCloudLogin || !authManager.isLoggedIn || themeManager.isStoreLoading)
             }
         }
        .navigationTitle(settingsManager.localizedString(forKey: "themes"))
@@ -295,6 +318,28 @@ struct ThemeSelectionView: View {
        .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
        .onAppear {
            print("ThemeSelectionView onAppear: useiCloudLogin = \(settingsManager.useiCloudLogin)")
+           if settingsManager.useiCloudLogin && authManager.isLoggedIn { // && themeManager.storeKitProducts.isEmpty { // 每次出现都获取一下，确保最新
+               Task {
+                   await themeManager.fetchSKProducts()
+                   // 视图出现时也检查一下当前购买情况
+                   await StoreKitManager.shared.checkForCurrentEntitlements()
+               }
+           }
+           themeManager.storeKitError = nil // 进入视图时清除旧错误
+       }
+       .onChange(of: themeManager.storeKitError) { oldValue, newValue in // 监听错误变化
+           if let newError = newValue {
+               self.storeActionError = newError
+           }
+       }
+       .alert(isPresented: $showStoreErrorAlert, error: storeActionError) { error in
+           // SwiftUI 会自动使用 error.localizedDescription
+           Button("OK") {
+               themeManager.storeKitError = nil // 清除错误，以便下次可以再次触发 alert
+               storeActionError = nil
+           }
+       } message: { error in
+           Text(error.errorDescription ?? "An unknown error occurred.") // 使用我们自定义的描述
        }
     }
 
@@ -305,8 +350,7 @@ struct ThemeSelectionView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(theme.name)
                        .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-                    
-                    HStack {
+                    HStack { /* ... 颜色圆点 ... */ 
                         Circle().fill(theme.backgroundColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
                         Circle().fill(theme.sliderColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
                         if let font = theme.fontName { Text(font).font(.caption2).italic() }
@@ -321,42 +365,45 @@ struct ThemeSelectionView: View {
                        .foregroundColor(.green)
                        .font(.title2)
                 } else {
-                    let isConsideredPurchased = themeManager.isThemePurchased(theme)
-
-                    if isConsideredPurchased {
-                        // Theme is free, or it's paid and considered purchased (either via local cache or iCloud sync)
-                        // To apply a paid theme, iCloud login must be enabled (even if known locally)
-                        let canApplyThisTheme = !theme.isPremium || settingsManager.useiCloudLogin
+                    if themeManager.isThemePurchased(theme) {
                         Button(settingsManager.localizedString(forKey: "applyTheme")) {
                             SoundManager.playImpactHaptic(settings: settingsManager)
                             themeManager.setCurrentTheme(theme)
                         }
                        .buttonStyle(.bordered)
                        .tint(themeManager.currentTheme.sliderColor.color)
-                       .disabled(!canApplyThisTheme)
-                    } else { // Theme is premium and NOT considered purchased
-                        Button {
+                    } else if theme.isPremium {
+                        let product = storeKitProduct(for: theme)
+                        
+                        Button(action: {
                             SoundManager.playImpactHaptic(settings: settingsManager)
-                            themeManager.themeDidGetPurchased(themeID: theme.id, authManager: authManager)
-                            print("购买主题 '\(theme.name)' 按钮被点击 (功能待StoreKit集成)")
-                        } label: {
-                            Text("\(settingsManager.localizedString(forKey: "purchase")) \(theme.price != nil ? String(format: "¥%.2f", theme.price!) : "")")
+                            guard settingsManager.useiCloudLogin && authManager.isLoggedIn else {
+                                print("Purchase blocked: iCloud not enabled or user not logged in.")
+                                self.storeActionError = .userCannotMakePayments
+                                return
+                            }
+                            Task {
+                                await themeManager.purchaseTheme(theme)
+                                // 错误会通过 themeManager.storeKitError 更新
+                            }
+                        }) {
+                            if themeManager.isStoreLoading && storeKitProduct(for: theme)?.id == product?.id {
+                                ProgressView().frame(height: 20)
+                            } else {
+                                Text(product?.displayPrice ?? (theme.price != nil ? String(format: "¥%.2f", theme.price!) : settingsManager.localizedString(forKey: "purchase")))
+                            }
                         }
                        .buttonStyle(.borderedProminent)
-                       .tint(theme.isPremium ? .pink : themeManager.currentTheme.sliderColor.color)
-                       .disabled(!settingsManager.useiCloudLogin) // Can only purchase if iCloud login is enabled
+                       .tint(.pink)
+                       .disabled(!settingsManager.useiCloudLogin || !authManager.isLoggedIn || themeManager.isStoreLoading || product == nil) // 如果 product 未加载也禁用
                     }
+                    // 免费且未应用的主题会落入 isThemePurchased -> applyTheme
                 }
             }
             
             if theme.isPremium {
-                if !themeManager.isThemePurchased(theme) && !settingsManager.useiCloudLogin {
+                if !themeManager.isThemePurchased(theme) && (!settingsManager.useiCloudLogin || !authManager.isLoggedIn) {
                     Text(settingsManager.localizedString(forKey: "purchaseRequiresiCloud"))
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                        .padding(.top, 2)
-                } else if themeManager.isThemePurchased(theme) && !settingsManager.useiCloudLogin && themeManager.currentTheme.id != theme.id {
-                    Text(settingsManager.localizedString(forKey: "applyPaidThemeRequiresiCloud"))
                         .font(.caption2)
                         .foregroundColor(.orange)
                         .padding(.top, 2)
