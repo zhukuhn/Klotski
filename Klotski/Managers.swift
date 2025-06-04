@@ -6,17 +6,19 @@
 //
 
 import SwiftUI
-import AVFoundation // For future sound implementation
-import UIKit // For Haptics
+import AVFoundation
+import UIKit
 import Combine
 import CloudKit
+import GameKit
 import StoreKit
 
+// MARK: - GameManager
 class GameManager: ObservableObject {
     @Published var currentLevel: Level?
-    @Published var currentLevelIndex: Int? 
-    @Published var pieces: [Piece] = [] // 当前关卡的棋子实例
-    @Published var gameBoard: [[Int?]] = [] // 棋盘网格，存储占据该格子的棋子ID，nil表示空格。Int? 而非 Int 是因为 0 可能是一个有效的棋子ID
+    @Published var currentLevelIndex: Int?
+    @Published var pieces: [Piece] = []
+    @Published var gameBoard: [[Int?]] = []
     
     static let classicLevel = Level(
         id: "classic_hdml", name: "横刀立马", boardWidth: 4, boardHeight: 5,
@@ -26,7 +28,7 @@ class GameManager: ObservableObject {
             PiecePlacement(id: 5, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 6, type: .huangZhongV, initialX: 3, initialY: 2),
             PiecePlacement(id: 7, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 8, type: .soldier, initialX: 2, initialY: 3),
             PiecePlacement(id: 9, type: .soldier, initialX: 0, initialY: 4), PiecePlacement(id: 10, type: .soldier, initialX: 3, initialY: 4)
-        ], targetPieceId: 1, targetX: 1, targetY: 3, bestMoves: 200, bestTime: 200
+        ], targetPieceId: 1, targetX: 1, targetY: 3
     )
     static let easyExitLevel = Level(
         id: "easy_exit", name: "兵临城下", boardWidth: 4, boardHeight: 5,
@@ -34,8 +36,8 @@ class GameManager: ObservableObject {
             PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),
             PiecePlacement(id: 2, type: .soldier, initialX: 0, initialY: 0), PiecePlacement(id: 3, type: .soldier, initialX: 3, initialY: 0),
             PiecePlacement(id: 4, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 5, type: .soldier, initialX: 2, initialY: 2),
-            PiecePlacement(id: 6, type: .guanYuH, initialX: 1, initialY: 3) // Blocks exit initially
-        ], targetPieceId: 1, targetX: 1, targetY: 3, bestMoves: 100, bestTime: 200
+            PiecePlacement(id: 6, type: .guanYuH, initialX: 1, initialY: 3)
+        ], targetPieceId: 1, targetX: 1, targetY: 3
     )
     static let verticalChallengeLevel = Level(
         id: "vertical_challenge", name: "层峦叠嶂", boardWidth: 4, boardHeight: 5,
@@ -48,170 +50,156 @@ class GameManager: ObservableObject {
         ], targetPieceId: 1, targetX: 1, targetY: 3
     )
     
-    @Published var levels: [Level] = [classicLevel, easyExitLevel, verticalChallengeLevel] // 更多关卡可以后续添加
+    @Published var levels: [Level] = [classicLevel, easyExitLevel, verticalChallengeLevel]
     
     @Published var moves: Int = 0
-    @Published var timeElapsed: TimeInterval = 0
+    @Published var timeElapsed: TimeInterval = 0 // TimeInterval is Double, suitable for precision
     @Published var isGameActive: Bool = false
     @Published var hasSavedGame: Bool = false
     @Published var isGameWon: Bool = false
-    @Published var isPaused: Bool = false // 游戏暂停状态
+    @Published var isPaused: Bool = false
 
-    private var timerSubscription: Cancellable? // 用于管理计时器
-    
-    private let savedLevelIDKey = "savedKlotskiLevelID"
-    private let savedMovesKey = "savedKlotskiMoves"
-    private let savedTimeKey = "savedKlotskiTime"
-    private let savedPiecesKey = "savedKlotskiPieces"
-    private let savedLevelIndexKey = "savedKlotskiLevelIndex"
-    private let savedIsPausedKey = "savedKlotskiIsPaused" // 保存暂停状态的键
+    private var timerSubscription: Cancellable?
+    private var lastTimerFireDate: Date? // To calculate precise time delta
+    private let timerInterval: TimeInterval = 0.01 // Update every 0.01 seconds for centisecond precision
+
+    private var cancellables = Set<AnyCancellable>()
+
+    private let privateDB = CKContainer.default().privateCloudDatabase
+    private var authManager: AuthManager?
+    private var settingsManager: SettingsManager?
+
+    private let savedInProgressLevelIDKey = "savedKlotskiInProgressLevelID"
+    private let savedInProgressMovesKey = "savedKlotskiInProgressMoves"
+    private let savedInProgressTimeKey = "savedKlotskiInProgressTime" // This will store TimeInterval (Double)
+    private let savedInProgressPiecesKey = "savedKlotskiInProgressPieces"
+    private let savedInProgressLevelIndexKey = "savedKlotskiInProgressLevelIndex"
+    private let savedInProgressIsPausedKey = "savedKlotskiInProgressIsPaused"
 
     init() {
-        let levelID = UserDefaults.standard.string(forKey: savedLevelIDKey)
-        let piecesData = UserDefaults.standard.data(forKey: savedPiecesKey)
-        let movesDataExists = UserDefaults.standard.object(forKey: savedMovesKey) != nil
-        let timeDataExists = UserDefaults.standard.object(forKey: savedTimeKey) != nil
-        let levelIndexExists = UserDefaults.standard.object(forKey: savedLevelIndexKey) != nil
-        let isPausedDataExists = UserDefaults.standard.object(forKey: savedIsPausedKey) != nil
+        let levelID = UserDefaults.standard.string(forKey: savedInProgressLevelIDKey)
+        let piecesData = UserDefaults.standard.data(forKey: savedInProgressPiecesKey)
+        let movesDataExists = UserDefaults.standard.object(forKey: savedInProgressMovesKey) != nil
+        // For time, we now directly store TimeInterval (Double)
+        let timeDataExists = UserDefaults.standard.object(forKey: savedInProgressTimeKey) != nil
+        let levelIndexExists = UserDefaults.standard.object(forKey: savedInProgressLevelIndexKey) != nil
+        let isPausedDataExists = UserDefaults.standard.object(forKey: savedInProgressIsPausedKey) != nil
 
-        print("GameManager init: 正在检查已保存的数据...")
-        print("  - 关卡 ID: \(levelID ?? "无")")
-        print("  - 棋子数据: \(piecesData != nil ? "\(piecesData!.count) 字节" : "无")")
-        print("  - 步数: \(movesDataExists ? String(describing: UserDefaults.standard.integer(forKey: savedMovesKey)) : "无")")
-        print("  - 时间: \(timeDataExists ? String(describing: UserDefaults.standard.double(forKey: savedTimeKey)) : "无")")
-        print("  - 关卡索引: \(levelIndexExists ? String(describing: UserDefaults.standard.integer(forKey: savedLevelIndexKey)) : "无")")
-
-        // 严格检查：所有存档部分都必须存在才认为存档有效
-        if let id = levelID, piecesData != nil, movesDataExists, timeDataExists, levelIndexExists, isPausedDataExists {
-            print("GameManager init: 发现有效的存档，关卡 ID \(id)。设置 hasSavedGame = true")
+        if levelID != nil, piecesData != nil, movesDataExists, timeDataExists, levelIndexExists, isPausedDataExists {
             hasSavedGame = true
         } else {
-            print("GameManager init: 未找到有效的完整存档或存档部分缺失。设置 hasSavedGame = false。")
             hasSavedGame = false
-            // 如果任何存档部分存在，说明存档不完整或已损坏，进行清理
-            if levelID != nil || piecesData != nil || movesDataExists || timeDataExists || levelIndexExists || isPausedDataExists {
-                print("GameManager init: 正在清除部分或损坏的存档数据。")
-                UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
-                UserDefaults.standard.removeObject(forKey: savedMovesKey)
-                UserDefaults.standard.removeObject(forKey: savedTimeKey)
-                UserDefaults.standard.removeObject(forKey: savedPiecesKey)
-                UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
-                UserDefaults.standard.removeObject(forKey: savedIsPausedKey)
+            clearSavedGame() 
+        }
+        print("GameManager init: Local in-progress save check complete. hasSavedGame = \(hasSavedGame)")
+    }
+
+    func setupDependencies(authManager: AuthManager, settingsManager: SettingsManager) {
+        self.authManager = authManager
+        self.settingsManager = settingsManager
+
+        authManager.$currentUser
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] userProfile in
+                guard let self = self else { return }
+                if userProfile != nil && settingsManager.useiCloudLogin {
+                    print("GameManager: User logged in. Fetching best scores from CloudKit.")
+                    Task { await self.fetchBestScoresFromCloud() }
+                } else if userProfile == nil {
+                    print("GameManager: User logged out. Cloud scores will not be fetched/synced.")
+                }
             }
+            .store(in: &cancellables)
+
+        if authManager.isLoggedIn && settingsManager.useiCloudLogin {
+            print("GameManager: Initial setup with logged-in user. Fetching best scores.")
+            Task { await self.fetchBestScoresFromCloud() }
         }
     }
     
-    // 开始指定关卡
     func startGame(level: Level, settings: SettingsManager, isNewSession: Bool = true) {
         currentLevel = level
-        if let index = levels.firstIndex(where: { $0.id == level.id }) {
-            currentLevelIndex = index
-        } else {
-            currentLevelIndex = nil; print("警告：开始的关卡 \(level.name) 在 levels 数组中未找到！")
-        }
+        currentLevelIndex = levels.firstIndex(where: { $0.id == level.id })
 
-        if isNewSession { // 只有全新的会话才重置所有状态
+        if isNewSession {
             moves = 0
-            timeElapsed = 0
-            isPaused = true // 新游戏默认暂停
+            timeElapsed = 0.0 // Reset with double
+            isPaused = true 
         }
-        // 对于切换关卡 (isNewSession = false)，moves, timeElapsed, isPaused 会在 switchToLevel 中处理
-
+        
         isGameActive = true
         isGameWon = false
         
         pieces = level.piecePlacements.map { Piece(id: $0.id, type: $0.type, x: $0.initialX, y: $0.initialY) }
         rebuildGameBoard()
-        print("游戏开始/切换到: \(level.name) (索引: \(currentLevelIndex ?? -1)), isPaused: \(isPaused)")
+        print("游戏开始/切换到: \(level.name), isPaused: \(isPaused)")
         SoundManager.playImpactHaptic(settings: settings)
         
-        if !isPaused && !isGameWon { // 如果不是暂停状态且未胜利，则启动计时器
-            startTimer()
-        } else {
-            stopTimer() // 其他情况确保计时器停止
-        }
+        if !isPaused && !isGameWon { startTimer() } else { stopTimer() }
     }
 
-    // 切换到指定索引的关卡
     func switchToLevel(at index: Int, settings: SettingsManager) {
-        guard index >= 0 && index < levels.count else { print("切换关卡失败：索引 \(index) 超出范围。"); return }
+        guard index >= 0 && index < levels.count else { return }
         let newLevel = levels[index]
         
-        // 切换关卡时，重置这些状态
         moves = 0
-        timeElapsed = 0
-        isPaused = false // 新关卡默认不暂停
+        timeElapsed = 0.0 // Reset with double
+        isPaused = false 
         isGameWon = false
-        // isGameActive 保持 true
         
-        stopTimer() // 先停止旧关卡的计时器
-        startGame(level: newLevel, settings: settings, isNewSession: false) // isNewSession false 表示是切换
-        clearSavedGameForCurrentLevelOnly() // 清除对这个新关卡尝试的任何旧存档
+        stopTimer() 
+        startGame(level: newLevel, settings: settings, isNewSession: false) 
+        clearSavedGameForCurrentLevelOnly()
     }
 
-    // 仅清除当前关卡的存档标记，但不清除关卡本身的最佳记录
-    private func clearSavedGameForCurrentLevelOnly() {
-        UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
-        UserDefaults.standard.removeObject(forKey: savedMovesKey)
-        UserDefaults.standard.removeObject(forKey: savedTimeKey)
-        UserDefaults.standard.removeObject(forKey: savedPiecesKey)
-        UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
-        UserDefaults.standard.removeObject(forKey: savedIsPausedKey) // Also clear saved pause state for this attempt
-        hasSavedGame = false // 因为当前尝试的存档被清除了
-        print("已清除当前尝试的关卡存档。hasSavedGame = \(hasSavedGame)")
-    }
-
-    // 暂停游戏
     func pauseGame() {
-        guard isGameActive && !isGameWon else { return } // 游戏结束或未开始不能暂停
+        guard isGameActive && !isGameWon else { return }
         if !isPaused {
             isPaused = true
-            stopTimer()
+            stopTimer() // Stops the timer and records the current timeElapsed
             print("游戏已暂停。时间: \(formattedTime(timeElapsed))")
         }
     }
 
-    // 继续游戏
     func resumeGame(settings: SettingsManager) {
-        guard isGameActive && !isGameWon else { return } // 游戏结束或未开始不能继续
+        guard isGameActive && !isGameWon else { return }
         if isPaused {
             isPaused = false
-            startTimer()
+            startTimer() // Restarts the timer
             SoundManager.playImpactHaptic(settings: settings)
             print("游戏已继续。")
         }
     }
 
-    // 启动计时器
     func startTimer() {
-        stopTimer() // 先确保之前的计时器已停止
-        guard isGameActive && !isPaused && !isGameWon else { return } // 满足条件才启动
+        stopTimer() 
+        guard isGameActive && !isPaused && !isGameWon else { return }
         
-        timerSubscription = Timer.publish(every: 1, on: .main, in: .common)
+        lastTimerFireDate = Date() // Set the initial fire date
+        timerSubscription = Timer.publish(every: timerInterval, on: .main, in: .common)
             .autoconnect()
-            .sink { [weak self] _ in
-                self?.timeElapsed += 1
+            .sink { [weak self] currentDate in
+                guard let self = self, let lastFire = self.lastTimerFireDate else { return }
+                let interval = currentDate.timeIntervalSince(lastFire)
+                self.timeElapsed += interval
+                self.lastTimerFireDate = currentDate // Update for the next interval
             }
-        print("计时器已启动。isGameActive=\(isGameActive), isPaused=\(isPaused), isGameWon=\(isGameWon)")
+        print("计时器已启动 (间隔: \(timerInterval)s)。")
     }
 
-    // 停止计时器
     func stopTimer() {
         timerSubscription?.cancel()
         timerSubscription = nil
-        print("计时器已停止。")
+        lastTimerFireDate = nil // Clear the last fire date
+        print("计时器已停止。当前累计时间: \(timeElapsed)")
     }
     
-    // 尝试移动棋子 (由拖动手势结束时调用)
-    // dx, dy 是格子单位的位移
     func attemptMove(pieceId: Int, dx: Int, dy: Int, settings: SettingsManager) -> Bool {
-        guard isGameActive && !isPaused && !isGameWon else { 
-            print("尝试移动失败：游戏非活动、已暂停或已胜利。")
-            return false 
-        } // 增加检查
-        guard let level = currentLevel, var pieceToMove = pieces.first(where: { $0.id == pieceId }),
+        guard isGameActive && !isPaused && !isGameWon,
+              let level = currentLevel,
+              var pieceToMove = pieces.first(where: { $0.id == pieceId }),
               (dx != 0 || dy != 0) else {
-            return false // No actual displacement
+            return false
         }
         
         let originalX = pieceToMove.x
@@ -221,22 +209,17 @@ class GameManager: ObservableObject {
         
         guard newX >= 0, newX + pieceToMove.width <= level.boardWidth,
               newY >= 0, newY + pieceToMove.height <= level.boardHeight else {
-            print("移动无效：棋子 \(pieceId) 移出边界。")
             return false
         }
         
         for r in 0..<pieceToMove.height {
             for c in 0..<pieceToMove.width {
-                let targetBoardY = newY + r
-                let targetBoardX = newX + c
-                if let occupyingPieceId = gameBoard[targetBoardY][targetBoardX], occupyingPieceId != pieceId {
-                    print("移动无效：棋子 \(pieceId) 与棋子 \(occupyingPieceId) 在 (\(targetBoardX), \(targetBoardY)) 发生碰撞。")
+                if let occupyingPieceId = gameBoard[newY + r][newX + c], occupyingPieceId != pieceId {
                     return false
                 }
             }
         }
         
-        // Update gameBoard
         for r in 0..<pieceToMove.height { for c in 0..<pieceToMove.width { gameBoard[originalY + r][originalX + c] = nil } }
         for r in 0..<pieceToMove.height { for c in 0..<pieceToMove.width { gameBoard[newY + r][newX + c] = pieceId } }
         
@@ -246,8 +229,7 @@ class GameManager: ObservableObject {
             pieceToMove = pieces[index]
         }
         
-        moves += abs(dx) + abs(dy) // A more accurate move count for Klotski might be just 1 per piece slide.
-                                   // However, this counts each grid unit moved.
+        moves += 1 
         print("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
         
         checkWinCondition(movedPiece: pieceToMove, settings: settings)
@@ -284,119 +266,92 @@ class GameManager: ObservableObject {
         return true
     }
     
-    
     func checkWinCondition(movedPiece: Piece, settings: SettingsManager) {
-        guard let level = currentLevel, !isGameWon else { return } 
+        guard let level = currentLevel, !isGameWon else { return }
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
-            stopTimer() 
-            print("恭喜！关卡 \(level.name) 完成！总步数: \(moves)")
-            SoundManager.playSound(named: "victory_fanfare", settings: settings) 
-            SoundManager.playHapticNotification(type: .success, settings: settings) 
+            stopTimer() // Final timeElapsed recorded here
+            print("恭喜！关卡 \(level.name) 完成！总步数: \(moves), 时间: \(formattedTime(timeElapsed))") // formattedTime will show precision
+            SoundManager.playSound(named: "victory_fanfare", settings: settings)
+            SoundManager.playHapticNotification(type: .success, settings: settings)
             
-            if let currentIndex = currentLevelIndex {
-                var completedLevel = levels[currentIndex]
-                var recordUpdated = false
-                if completedLevel.bestMoves == nil || moves < completedLevel.bestMoves! {
-                    completedLevel.bestMoves = moves
-                    recordUpdated = true
-                    print("新纪录：最少步数 \(moves) 步！")
-                }
-                if completedLevel.bestTime == nil || timeElapsed < completedLevel.bestTime! {
-                    completedLevel.bestTime = timeElapsed
-                    recordUpdated = true
-                    print("新纪录：最短时间 \(formattedTime(timeElapsed))！")
-                }
-                if recordUpdated {
-                    levels[currentIndex] = completedLevel
-                    // TODO P2: Persist the entire levels array (e.g., to UserDefaults or CloudKit if it contains user-specific bests)
-                    // persistLevelsArray() 
-                }
-            }
-            clearSavedGameForCurrentLevelOnly() 
+            updateAndSyncBestScore(levelId: level.id, currentMoves: moves, currentTime: timeElapsed)
+            submitScoreToLeaderboard(levelID: level.id, moves: moves, time: timeElapsed) // Submit precise time
+            
+            clearSavedGameForCurrentLevelOnly()
         }
     }
     
-    
     func continueGame(settings: SettingsManager) {
-        guard let savedLevelID = UserDefaults.standard.string(forKey: savedLevelIDKey),
-              let savedLevelIndex = UserDefaults.standard.object(forKey: savedLevelIndexKey) as? Int, 
-              savedLevelIndex >= 0 && savedLevelIndex < levels.count, 
-              let levelToContinue = levels.first(where: { $0.id == savedLevelID }), 
-              UserDefaults.standard.object(forKey: savedPiecesKey) != nil,
-              UserDefaults.standard.object(forKey: savedMovesKey) != nil,
-              UserDefaults.standard.object(forKey: savedTimeKey) != nil,
-              UserDefaults.standard.object(forKey: savedIsPausedKey) != nil // Check for pause state key
+        guard let savedLevelID = UserDefaults.standard.string(forKey: savedInProgressLevelIDKey),
+              let savedLevelIndex = UserDefaults.standard.object(forKey: savedInProgressLevelIndexKey) as? Int,
+              savedLevelIndex >= 0 && savedLevelIndex < levels.count,
+              let levelToContinue = levels.first(where: { $0.id == savedLevelID }),
+              UserDefaults.standard.object(forKey: savedInProgressPiecesKey) != nil,
+              UserDefaults.standard.object(forKey: savedInProgressMovesKey) != nil,
+              UserDefaults.standard.object(forKey: savedInProgressTimeKey) != nil, // Time is Double
+              UserDefaults.standard.object(forKey: savedInProgressIsPausedKey) != nil
         else {
-            print("继续游戏失败：未找到有效或完整的存档。将清除任何部分存档。")
+            print("继续游戏失败：未找到有效或完整的本地存档。")
             clearSavedGame(); hasSavedGame = false; return
         }
         
         self.currentLevel = levelToContinue
-        self.currentLevelIndex = savedLevelIndex 
-        self.moves = UserDefaults.standard.integer(forKey: savedMovesKey)
-        self.timeElapsed = UserDefaults.standard.double(forKey: savedTimeKey)
-        self.isPaused = UserDefaults.standard.bool(forKey: savedIsPausedKey)
+        self.currentLevelIndex = savedLevelIndex
+        self.moves = UserDefaults.standard.integer(forKey: savedInProgressMovesKey)
+        self.timeElapsed = UserDefaults.standard.double(forKey: savedInProgressTimeKey) // Load Double
+        self.isPaused = UserDefaults.standard.bool(forKey: savedInProgressIsPausedKey)
 
-
-        if let savedPiecesData = UserDefaults.standard.data(forKey: savedPiecesKey) {
+        if let savedPiecesData = UserDefaults.standard.data(forKey: savedInProgressPiecesKey) {
             do {
                 self.pieces = try JSONDecoder().decode([Piece].self, from: savedPiecesData)
                 rebuildGameBoard()
                 self.isGameActive = true; self.isGameWon = false
-                print("继续游戏: \(levelToContinue.name) (索引: \(savedLevelIndex)), 棋子状态已加载, isPaused: \(self.isPaused)")
-                SoundManager.playImpactHaptic(settings: settings)
-                if !self.isPaused && !self.isGameWon { startTimer() } 
+                print("继续游戏: \(levelToContinue.name), 本地存档已加载, isPaused: \(self.isPaused)")
+                if !self.isPaused && !self.isGameWon { startTimer() }
                 else { stopTimer() } 
-                
-                if let targetPiece = pieces.first(where: {$0.id == levelToContinue.targetPieceId}) {
-                     checkWinCondition(movedPiece: targetPiece, settings: settings)
-                 }
             } catch {
-                print("错误：无法解码已保存的棋子状态: \(error)。将清除存档。")
-                clearSavedGame()
-                hasSavedGame = false
-                isGameActive = false
+                print("错误：无法解码已保存的本地棋子状态: \(error)。")
+                clearSavedGame(); hasSavedGame = false; isGameActive = false
             }
         }
     }
     
-    func saveGame(settings: SettingsManager) {
-        guard let currentLevel = currentLevel, let currentIndex = currentLevelIndex else {
-            print("SaveGame: 无当前关卡，无法保存。")
+    func saveGame(settings: SettingsManager) { 
+        guard let currentLevel = currentLevel, let currentIndex = currentLevelIndex, isGameActive && !isGameWon else {
             return
         }
-        guard isGameActive && !isGameWon else {
-            print("SaveGame: 游戏非活跃或已胜利，跳过保存。isGameActive=\(isGameActive), isGameWon=\(isGameWon)")
-            return
-        }
-        UserDefaults.standard.set(currentLevel.id, forKey: savedLevelIDKey)
-        UserDefaults.standard.set(currentIndex, forKey: savedLevelIndexKey)
-        UserDefaults.standard.set(moves, forKey: savedMovesKey)
-        UserDefaults.standard.set(timeElapsed, forKey: savedTimeKey)
-        UserDefaults.standard.set(isPaused, forKey: savedIsPausedKey) 
+        UserDefaults.standard.set(currentLevel.id, forKey: savedInProgressLevelIDKey)
+        UserDefaults.standard.set(currentIndex, forKey: savedInProgressLevelIndexKey)
+        UserDefaults.standard.set(moves, forKey: savedInProgressMovesKey)
+        UserDefaults.standard.set(timeElapsed, forKey: savedInProgressTimeKey) // Save Double
+        UserDefaults.standard.set(isPaused, forKey: savedInProgressIsPausedKey)
         do {
             let encodedPieces = try JSONEncoder().encode(pieces)
-            UserDefaults.standard.set(encodedPieces, forKey: savedPiecesKey)
-            hasSavedGame = true 
-            print("游戏已保存: \(currentLevel.name), 步数: \(moves), isPaused: \(isPaused)。hasSavedGame = \(hasSavedGame)")
+            UserDefaults.standard.set(encodedPieces, forKey: savedInProgressPiecesKey)
+            hasSavedGame = true
+            print("游戏进行中状态已保存到本地: \(currentLevel.name)")
         } catch {
-            print("错误：无法编码并保存棋子状态: \(error)")
-            hasSavedGame = false 
+            print("错误：无法编码并保存本地棋子状态: \(error)")
+            hasSavedGame = false
         }
     }
     
-    func clearSavedGame() {
-        UserDefaults.standard.removeObject(forKey: savedLevelIDKey)
-        UserDefaults.standard.removeObject(forKey: savedLevelIndexKey)
-        UserDefaults.standard.removeObject(forKey: savedMovesKey)
-        UserDefaults.standard.removeObject(forKey: savedTimeKey)
-        UserDefaults.standard.removeObject(forKey: savedPiecesKey) 
-        UserDefaults.standard.removeObject(forKey: savedIsPausedKey) 
+    func clearSavedGame() { 
+        UserDefaults.standard.removeObject(forKey: savedInProgressLevelIDKey)
+        UserDefaults.standard.removeObject(forKey: savedInProgressLevelIndexKey)
+        UserDefaults.standard.removeObject(forKey: savedInProgressMovesKey)
+        UserDefaults.standard.removeObject(forKey: savedInProgressTimeKey)
+        UserDefaults.standard.removeObject(forKey: savedInProgressPiecesKey)
+        UserDefaults.standard.removeObject(forKey: savedInProgressIsPausedKey)
         hasSavedGame = false
-        print("已清除已保存的游戏及棋子状态")
+        print("已清除本地保存的游戏进行中状态")
     }
-    
+
+    private func clearSavedGameForCurrentLevelOnly() {
+        clearSavedGame()
+    }
+
     func rebuildGameBoard() {
         guard let level = currentLevel else { return }
         gameBoard = Array(repeating: Array(repeating: nil, count: level.boardWidth), count: level.boardHeight)
@@ -413,31 +368,208 @@ class GameManager: ObservableObject {
         }
     }
 
+    // Updated to show centiseconds (hundredths of a second)
     func formattedTime(_ time: TimeInterval?) -> String {
-        guard let time = time else { return "--:--" }
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        guard let time = time else { return "--:--.--" }
+        let totalSeconds = Int(time)
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        let centiseconds = Int((time.truncatingRemainder(dividingBy: 1.0)) * 100)
+        return String(format: "%02d:%02d.%02d", minutes, seconds, centiseconds)
+    }
+
+    private func updateAndSyncBestScore(levelId: String, currentMoves: Int, currentTime: TimeInterval) {
+        guard let levelIndex = levels.firstIndex(where: { $0.id == levelId }) else {
+            print("Error: Could not find level with ID \(levelId) to update best score.")
+            return
+        }
+
+        var updatedLocally = false
+        if levels[levelIndex].bestMoves == nil || currentMoves < levels[levelIndex].bestMoves! {
+            levels[levelIndex].bestMoves = currentMoves
+            updatedLocally = true
+            print("新本地最佳步数记录 for \(levelId): \(currentMoves)")
+        }
+        if levels[levelIndex].bestTime == nil || currentTime < levels[levelIndex].bestTime! {
+            levels[levelIndex].bestTime = currentTime // currentTime is already precise
+            updatedLocally = true
+            print("新本地最佳时间记录 for \(levelId): \(formattedTime(currentTime))")
+        }
+
+        if updatedLocally {
+            if let authMgr = authManager, let settingsMgr = settingsManager,
+               authMgr.isLoggedIn, settingsMgr.useiCloudLogin {
+                Task {
+                    await saveBestScoreToCloud(
+                        levelID: levelId,
+                        moves: levels[levelIndex].bestMoves!, 
+                        time: levels[levelIndex].bestTime!   
+                    )
+                }
+            }
+        }
+    }
+
+    @MainActor 
+    func saveBestScoreToCloud(levelID: String, moves: Int, time: TimeInterval) async {
+        guard let authMgr = authManager, let settingsMgr = settingsManager,
+              authMgr.isLoggedIn, settingsMgr.useiCloudLogin else {
+            print("CloudKit Sync: Not logged in or iCloud disabled. Skipping save for \(levelID).")
+            return
+        }
+        
+        print("CloudKit Sync: Attempting to save best score for level \(levelID): Moves - \(moves), Time - \(time)") // Time is Double
+
+        let recordID = CKRecord.ID(recordName: levelID) 
+        var statsToSave = CompletedLevelCloudStats(id: levelID, bestMoves: moves, bestTime: time)
+
+        do {
+            let existingRecord = try? await privateDB.record(for: recordID)
+            statsToSave.ckRecordChangeTag = existingRecord?.recordChangeTag 
+            
+            let ckRecord = statsToSave.toCKRecord(existingRecord: existingRecord)
+            
+            try await privateDB.save(ckRecord)
+            print("CloudKit Sync: Successfully saved best score for level \(levelID).")
+            
+        } catch let error as CKError where error.code == .unknownItem {
+            print("CloudKit Sync: Record for \(levelID) not found, creating new one.")
+            let ckRecord = statsToSave.toCKRecord() 
+            do {
+                try await privateDB.save(ckRecord)
+                print("CloudKit Sync: Successfully created and saved best score for level \(levelID).")
+            } catch {
+                print("CloudKit Sync: Error creating new best score record for \(levelID): \(error.localizedDescription)")
+            }
+        } catch {
+            print("CloudKit Sync: Error saving best score for level \(levelID): \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    func fetchBestScoresFromCloud() async {
+        guard let authMgr = authManager, let settingsMgr = settingsManager,
+              authMgr.isLoggedIn, settingsMgr.useiCloudLogin else {
+            print("CloudKit Sync: Not logged in or iCloud disabled. Skipping fetch of best scores.")
+            return
+        }
+        print("CloudKit Sync: Fetching all best scores from user's private database...")
+
+        let query = CKQuery(recordType: CloudKitRecordTypes.CompletedLevelStats, predicate: NSPredicate(value: true))
+        
+        do {
+            let (matchResults, _) = try await privateDB.records(matching: query)
+            var cloudScoresUpdated = 0
+            
+            for (_, result) in matchResults {
+                switch result {
+                case .success(let record):
+                    if let cloudStats = CompletedLevelCloudStats(from: record) {
+                        if let levelIndex = levels.firstIndex(where: { $0.id == cloudStats.id }) {
+                            var localLevel = levels[levelIndex]
+                            var needsCloudUpdate = false
+                            var localBestChanged = false
+
+                            let localMoves = localLevel.bestMoves
+                            let cloudMoves = cloudStats.bestMoves
+                            if localMoves == nil || cloudMoves < localMoves! {
+                                localLevel.bestMoves = cloudMoves
+                                localBestChanged = true
+                                print("CloudKit Sync: Updated local best moves for \(cloudStats.id) from cloud: \(cloudMoves)")
+                            } else if localMoves != nil && localMoves! < cloudMoves {
+                                needsCloudUpdate = true 
+                            }
+
+                            let localTime = localLevel.bestTime
+                            let cloudTime = cloudStats.bestTime // cloudTime is Double
+                            if localTime == nil || cloudTime < localTime! {
+                                localLevel.bestTime = cloudTime
+                                localBestChanged = true
+                                print("CloudKit Sync: Updated local best time for \(cloudStats.id) from cloud: \(formattedTime(cloudTime))")
+                            } else if localTime != nil && localTime! < cloudTime {
+                                needsCloudUpdate = true 
+                            }
+                            
+                            if localBestChanged {
+                                levels[levelIndex] = localLevel 
+                                cloudScoresUpdated += 1
+                            }
+
+                            if needsCloudUpdate {
+                                print("CloudKit Sync: Local score for \(localLevel.id) is better. Syncing to cloud.")
+                                await saveBestScoreToCloud(levelID: localLevel.id, moves: localLevel.bestMoves!, time: localLevel.bestTime!)
+                            }
+                        }
+                    }
+                case .failure(let error):
+                    print("CloudKit Sync: Error fetching a best score record: \(error.localizedDescription)")
+                }
+            }
+            if cloudScoresUpdated > 0 {
+                 print("CloudKit Sync: Successfully fetched and updated \(cloudScoresUpdated) local best scores from CloudKit.")
+            } else if matchResults.isEmpty {
+                print("CloudKit Sync: No best scores found in CloudKit for this user.")
+            } else {
+                print("CloudKit Sync: Fetched scores from CloudKit, but no local scores were updated (local might be same or better).")
+            }
+
+        } catch {
+            print("CloudKit Sync: Error fetching all best scores: \(error.localizedDescription)")
+        }
+    }
+    
+    func submitScoreToLeaderboard(levelID: String, moves: Int, time: TimeInterval) {
+        guard GKLocalPlayer.local.isAuthenticated else {
+            print("Game Center: Player not authenticated. Cannot submit score.")
+            return
+        }
+        
+        // Leaderboard IDs should be defined in App Store Connect
+        // Example format: com.yourbundleid.levelname.moves or com.yourbundleid.levelname.time
+        let movesLeaderboardID = "\(levelID)_moves_klotski_v1" // Make these unique and match App Store Connect
+        let timeLeaderboardID = "\(levelID)_time_klotski_v1"   // Make these unique and match App Store Connect
+
+        print("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
+        GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { error in
+            if let error = error {
+                print("Game Center: Error submitting moves score to \(movesLeaderboardID): \(error.localizedDescription)")
+            } else {
+                print("Game Center: Successfully submitted moves score (\(moves)) to \(movesLeaderboardID).")
+            }
+        }
+
+        // For time, Game Center expects an Int64.
+        // Common practice is to submit time in milliseconds or centiseconds.
+        // Let's use centiseconds (hundredths of a second) for better granularity in leaderboards.
+        let timeInCentiseconds = Int64(time * 100)
+        print("Game Center: Attempting to submit to \(timeLeaderboardID) - Time (centiseconds): \(timeInCentiseconds)")
+        GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { error in
+            if let error = error {
+                print("Game Center: Error submitting time score to \(timeLeaderboardID): \(error.localizedDescription)")
+            } else {
+                print("Game Center: Successfully submitted time score (\(timeInCentiseconds)cs) to \(timeLeaderboardID).")
+            }
+        }
     }
 }
 
-@MainActor 
+// MARK: - ThemeManager
+@MainActor
 class ThemeManager: ObservableObject {
     @Published var themes: [Theme]
     @Published var currentTheme: Theme
-    @Published private(set) var purchasedThemeIDs: Set<String> 
+    @Published private(set) var purchasedThemeIDs: Set<String>
 
-    @Published var storeKitProducts: [Product] = [] 
+    @Published var storeKitProducts: [Product] = []
     @Published var storeKitError: StoreKitError? = nil
     @Published var isStoreLoading: Bool = false
 
     private var cancellables = Set<AnyCancellable>()
-    private let storeKitManager = StoreKitManager.shared 
+    private let storeKitManager = StoreKitManager.shared
     
     private let settingsManagerInstance: SettingsManager
     private var initialAuthCheckCompleted = false
     private let currentThemeIDKey = "currentThemeID"
-    // This key is referenced by AuthManager to clear UserDefaults upon account change.
     static let locallyKnownPaidThemeIDsKey = "locallyKnownPaidThemeIDs"
 
 
@@ -448,8 +580,6 @@ class ThemeManager: ObservableObject {
         let fallbackTheme = Theme(id: "fallback", name: "备用", isPremium: false, backgroundColor: CodableColor(color: .gray), sliderColor: CodableColor(color: .secondary), sliderTextColor: CodableColor(color: .black), boardBackgroundColor: CodableColor(color: .white), boardGridLineColor: CodableColor(color: Color(.systemGray)))
         let defaultThemeToSet = availableThemes.first(where: { $0.id == "default" }) ?? fallbackTheme
         
-        // Initialize purchasedThemeIDs with only free themes.
-        // Paid themes will be loaded based on AuthManager.currentUser state.
         let initialPurchased = Set(availableThemes.filter { !$0.isPremium }.map { $0.id })
         self._purchasedThemeIDs = Published(initialValue: initialPurchased)
         self._currentTheme = Published(initialValue: defaultThemeToSet)
@@ -457,13 +587,13 @@ class ThemeManager: ObservableObject {
         print("ThemeManager init: Initial purchasedThemeIDs (only free themes): \(self.purchasedThemeIDs)")
         
         storeKitManager.purchaseOrRestoreSuccessfulPublisher
-            .receive(on: DispatchQueue.main) 
-            .sink { [weak self] processedProductIDs in 
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] processedProductIDs in
                 guard let self = self else { return }
                 print("ThemeManager: Received successful purchase/restore for StoreKit Product IDs: \(processedProductIDs)")
                 self.handleSuccessfulStoreKitProcessing(storeKitProductIDs: processedProductIDs, authManager: authManager)
             }
-            .store(in: &cancellables) 
+            .store(in: &cancellables)
         
         storeKitManager.$fetchedProducts
             .receive(on: DispatchQueue.main)
@@ -487,24 +617,24 @@ class ThemeManager: ObservableObject {
                 print("ThemeManager: AuthManager.currentUser changed. New profile ID: \(userProfile?.id ?? "nil")")
                 self.initialAuthCheckCompleted = true
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
-                Task { 
-                    if self.settingsManagerInstance.useiCloudLogin { 
+                Task {
+                    if self.settingsManagerInstance.useiCloudLogin {
                         await self.fetchSKProducts()
-                        await self.storeKitManager.checkForCurrentEntitlements() 
+                        await self.storeKitManager.checkForCurrentEntitlements()
                     }
                 }
             }
             .store(in: &cancellables)
         
-        settingsManagerInstance.objectWillChange 
-            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main) 
+        settingsManagerInstance.objectWillChange
+            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 let iCloudSettingChanged = self.settingsManagerInstance.useiCloudLogin
                 print("ThemeManager: SettingsManager's useiCloudLogin might have changed to \(iCloudSettingChanged).")
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
                 Task {
-                     if iCloudSettingChanged { 
+                     if iCloudSettingChanged {
                          await self.fetchSKProducts()
                          await self.storeKitManager.checkForCurrentEntitlements()
                      } else if !iCloudSettingChanged {
@@ -517,7 +647,7 @@ class ThemeManager: ObservableObject {
         Task {
             if settingsManagerInstance.useiCloudLogin {
                 await fetchSKProducts()
-                await storeKitManager.checkForCurrentEntitlements() 
+                await storeKitManager.checkForCurrentEntitlements()
             }
         }
         print("ThemeManager init: Fully initialized. Current theme: \(self.currentTheme.name)")
@@ -595,7 +725,6 @@ class ThemeManager: ObservableObject {
             print("ThemeManager: Syncing updated purchased themes to CloudKit via AuthManager.")
             authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs) 
 
-            // Auto-apply logic only if purchased IDs actually changed
             if newlyProcessedAppThemeIDs.count == 1, 
                let singleNewThemeID = newlyProcessedAppThemeIDs.first,
                let themeToApply = themes.first(where: {$0.id == singleNewThemeID}),
@@ -704,7 +833,6 @@ class AuthManager: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
-    static let userProfileRecordType = "UserProfiles"
     static let useiCloudLoginKey = "useiCloudLogin" 
 
     init() {
@@ -716,7 +844,6 @@ class AuthManager: ObservableObject {
         if UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) == nil {
             UserDefaults.standard.set(useiCloudInitial, forKey: AuthManager.useiCloudLoginKey)
         }
-
 
         if useiCloudInitial {
             print("AuthManager init: iCloud login is enabled by preference. Checking status.")
@@ -730,7 +857,7 @@ class AuthManager: ObservableObject {
         }
 
         NotificationCenter.default.publisher(for: .CKAccountChanged)
-            .receive(on: DispatchQueue.main) // Ensure this runs on main for UI updates
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 print("AuthManager: Received CKAccountChanged notification. Clearing previous user session.")
@@ -739,7 +866,6 @@ class AuthManager: ObservableObject {
                 self.currentUser = nil
                 self.isLoggedIn = false
                 
-                // Dispatch UserDefaults removal to main actor to resolve concurrency warning
                 DispatchQueue.main.async {
                     UserDefaults.standard.removeObject(forKey: ThemeManager.locallyKnownPaidThemeIDsKey)
                     print("AuthManager: Cleared ThemeManager.locallyKnownPaidThemeIDsKey from UserDefaults due to account change.")
@@ -752,7 +878,6 @@ class AuthManager: ObservableObject {
                 } else {
                     print("AuthManager: iCloud account changed, but preference is OFF. Ensuring local session is cleared.")
                     self.clearLocalSessionForDisablediCloud(reason: "Account changed while preference is off.")
-                    // self.errorMessage = self.localizedErrorMessageForDisablediCloud() // This might be set by clearLocalSession or checkiCloud...
                 }
             }
             .store(in: &cancellables)
@@ -780,7 +905,6 @@ class AuthManager: ObservableObject {
                 if self.iCloudAccountStatus == .available {
                    self.iCloudAccountStatus = .couldNotDetermine 
                 }
-                // self.objectWillChange.send() // Not needed as @Published properties will trigger this
             }
         }
     }
@@ -792,9 +916,6 @@ class AuthManager: ObservableObject {
         if useiCloud {
             self.errorMessage = nil 
             self.isLoading = true 
-            if self.iCloudAccountStatus == .couldNotDetermine && self.currentUser == nil { 
-                 // self.iCloudAccountStatus = .couldNotDetermine // No need to reset if already this
-            }
             print("AuthManager: Preference ON. Attempting to check iCloud status and fetch profile.")
             checkiCloudAccountStatusAndFetchProfile()
         } else {
@@ -825,7 +946,7 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager accountStatus callback: iCloud login preference turned OFF during async. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during account status check.")
-                    self.isLoading = false // Ensure loading state is reset
+                    self.isLoading = false 
                     return
                 }
 
@@ -874,9 +995,7 @@ class AuthManager: ObservableObject {
         }
 
         print("AuthManager: Attempting to fetch iCloud User Record ID (preference is ON)...")
-        // Ensure isLoading is true if we reach here and it wasn't set by the caller
         if !self.isLoading { self.isLoading = true }
-
 
         container.fetchUserRecordID { [weak self] (recordID, error) in
             DispatchQueue.main.async {
@@ -886,7 +1005,7 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager fetchUserRecordID callback: iCloud login preference turned OFF during async. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during user ID fetch.")
-                    self.isLoading = false // Ensure loading state is reset
+                    self.isLoading = false 
                     return
                 }
                 let sm = SettingsManager() 
@@ -923,7 +1042,7 @@ class AuthManager: ObservableObject {
         let sm = SettingsManager() 
 
         let predicate = NSPredicate(format: "iCloudUserRecordName == %@", iCloudRecordName)
-        let query = CKQuery(recordType: AuthManager.userProfileRecordType, predicate: predicate)
+        let query = CKQuery(recordType: CloudKitRecordTypes.UserProfile, predicate: predicate)
         
         privateDB.fetch(withQuery: query, inZoneWith: nil, desiredKeys: nil, resultsLimit: 1) { [weak self] result in
             DispatchQueue.main.async {
@@ -933,7 +1052,7 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager fetchOrCreateUserProfile callback: iCloud login preference turned OFF. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile fetch/create.")
-                    self.isLoading = false // Ensure loading state is reset
+                    self.isLoading = false 
                     return
                 }
 
@@ -1001,7 +1120,7 @@ class AuthManager: ObservableObject {
                 guard currentiCloudPreference else { 
                     print("AuthManager createUserProfile callback: iCloud login preference turned OFF. Aborting.")
                     self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile creation.")
-                    self.isLoading = false // Ensure loading state is reset
+                    self.isLoading = false 
                     return
                 }
 
@@ -1160,7 +1279,6 @@ extension CKAccountStatus {
     }
 }
 
-
 class SettingsManager: ObservableObject {
     @AppStorage("selectedLanguage") var language: String = Locale.preferredLanguages.first?.split(separator: "-").first.map(String.init) ?? "en"
     @AppStorage("isSoundEffectsEnabled") var soundEffectsEnabled: Bool = true
@@ -1221,7 +1339,16 @@ class SettingsManager: ObservableObject {
             "iCloudConnectionError": "Cannot connect to iCloud.", 
             "iCloudSyncError": "iCloud available, but app could not sync user data.", 
             "iCloudLoginPrompt": "iCloud features require login. Check settings.", 
-            "iCloudDisabledInSettings": "iCloud login is disabled. Cloud features are unavailable." 
+            "iCloudDisabledInSettings": "iCloud login is disabled. Cloud features are unavailable.",
+            "storeKitErrorUnknown": "An unknown App Store error occurred.",
+            "storeKitErrorProductIDsEmpty": "No product identifiers were provided.",
+            "storeKitErrorProductsNotFound": "Products not found in the App Store.",
+            "storeKitErrorPurchaseFailed": "Purchase failed", 
+            "storeKitErrorPurchaseCancelled": "Purchase was cancelled.",
+            "storeKitErrorPurchasePending": "Purchase is pending.",
+            "storeKitErrorTransactionVerificationFailed": "Transaction verification failed.",
+            "storeKitErrorFailedToLoadEntitlements": "Failed to load current purchases",
+            "storeKitErrorUserCannotMakePayments": "This account cannot make payments."
         ],
         "zh": [
             "gameTitle": "华容道", "startGame": "开始游戏", "continueGame": "继续游戏",
@@ -1275,7 +1402,16 @@ class SettingsManager: ObservableObject {
             "iCloudConnectionError": "无法连接到iCloud。", 
             "iCloudSyncError": "iCloud可用，但应用未能同步用户数据。", 
             "iCloudLoginPrompt": "iCloud功能需要登录。请检查设置。", 
-            "iCloudDisabledInSettings": "iCloud登录已禁用。云同步功能不可用。" 
+            "iCloudDisabledInSettings": "iCloud登录已禁用。云同步功能不可用。",
+            "storeKitErrorUnknown": "发生未知App Store错误。",
+            "storeKitErrorProductIDsEmpty": "未提供产品ID。",
+            "storeKitErrorProductsNotFound": "在App Store中未找到产品。",
+            "storeKitErrorPurchaseFailed": "购买失败",
+            "storeKitErrorPurchaseCancelled": "购买已取消。",
+            "storeKitErrorPurchasePending": "购买待处理。",
+            "storeKitErrorTransactionVerificationFailed": "交易验证失败。",
+            "storeKitErrorFailedToLoadEntitlements": "加载当前购买项目失败",
+            "storeKitErrorUserCannotMakePayments": "此账户无法进行支付。"
         ]
     ]
 
@@ -1291,18 +1427,6 @@ struct SoundManager {
 
     static func playSound(named soundName: String, type: String = "mp3", settings: SettingsManager) {
         guard settings.soundEffectsEnabled else { return }
-        // Implementation for playing sound (ensure sound file is in bundle)
-        // Example:
-        // guard let url = Bundle.main.url(forResource: soundName, withExtension: type) else {
-        //     print("SoundManager: Sound file '\(soundName).\(type)' not found.")
-        //     return
-        // }
-        // do {
-        //     audioPlayer = try AVAudioPlayer(contentsOf: url)
-        //     audioPlayer?.play()
-        // } catch {
-        //     print("SoundManager: Could not load sound file: \(error)")
-        // }
         print("SoundManager: Playing sound '\(soundName)' (if enabled and sound file exists)")
     }
 
@@ -1348,9 +1472,9 @@ enum StoreKitError: Error, LocalizedError, Equatable {
     }
 
     var errorDescription: String? {
-        let sm = SettingsManager() // For localization
+        let sm = SettingsManager() 
         switch self {
-        case .unknown: return sm.localizedString(forKey: "storeKitErrorUnknown") // Add these keys to SettingsManager
+        case .unknown: return sm.localizedString(forKey: "storeKitErrorUnknown") 
         case .productIDsEmpty: return sm.localizedString(forKey: "storeKitErrorProductIDsEmpty")
         case .productsNotFound: return sm.localizedString(forKey: "storeKitErrorProductsNotFound")
         case .purchaseFailed(let msg):
@@ -1434,7 +1558,6 @@ class StoreKitManager: ObservableObject {
 
         do {
             let result = try await product.purchase()
-            // handlePurchaseResult is now @MainActor implicitly because StoreKitManager is @MainActor
             try await handlePurchaseResult(result, for: product.id)
         } catch let actualStoreKitError as StoreKit.StoreKitError { 
              print("StoreKitManager: Purchase failed for \(product.id) with StoreKitError: \(actualStoreKitError.localizedDescription) (\(actualStoreKitError))")
