@@ -241,6 +241,21 @@ struct AppThemeRepository {
               sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
               boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
               fontName: nil, colorScheme: .dark),
+        Theme(id: "neonNoir", name: "霓虹暗辉", isPremium: false, productID: nil,
+              // 背景使用深色渐变，这里用一个基色代替，实际背景在 View 层实现
+              backgroundColor: CodableColor(color: Color(red: 0.05, green: 0, blue: 0.15)), 
+              // sliderColor 定义霓虹灯的主色调 (例如，洋红色)
+              sliderColor: CodableColor(color: Color(red: 1, green: 0, blue: 0.5)), 
+              // sliderTextColor 是霓虹灯上文字的颜色，通常是亮的
+              sliderTextColor: CodableColor(color: .white), 
+              // 棋盘背景是半透明黑色
+              boardBackgroundColor: CodableColor(color: .black.opacity(0.3)),
+              // 棋盘网格线是发光的霓虹蓝
+              boardGridLineColor: CodableColor(color: Color(red: 0, green: 0.8, blue: 1)), 
+              sliderShape: .roundedRectangle, 
+              sliderContent: .character,
+              fontName: "AvenirNext-Bold", // 使用一个现代感的字体
+              colorScheme: .dark),
         Theme(id: "forest", name: "森林绿意", isPremium: true, price: 1.00, productID: "com.shenlan.Klotski.theme.forest",
               backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
               sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),

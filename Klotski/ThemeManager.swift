@@ -43,7 +43,7 @@ class ThemeManager: ObservableObject {
         self._purchasedThemeIDs = Published(initialValue: initialPurchased)
         self._currentTheme = Published(initialValue: defaultThemeToSet)
 
-        print("ThemeManager init: Initial purchasedThemeIDs (only free themes): \(self.purchasedThemeIDs)")
+        print("ThemeManager init: Initial purchasedThemeIDs (only two themes): \(self.purchasedThemeIDs)")
         
         storeKitManager.purchaseOrRestoreSuccessfulPublisher
             .receive(on: DispatchQueue.main)
@@ -128,6 +128,7 @@ class ThemeManager: ObservableObject {
     }
 
     func purchaseTheme(_ theme: Theme) async {
+    
         guard settingsManagerInstance.useiCloudLogin else {
             print("ThemeManager purchaseTheme: iCloud login is disabled. Cannot purchase.")
             self.storeKitError = .userCannotMakePayments
@@ -163,6 +164,7 @@ class ThemeManager: ObservableObject {
     }
     
     private func handleSuccessfulStoreKitProcessing(storeKitProductIDs: Set<String>, authManager: AuthManager) {
+
         print("ThemeManager: Handling successful StoreKit processing for product IDs: \(storeKitProductIDs)")
         var newlyProcessedAppThemeIDs = Set<String>()
 
@@ -180,7 +182,7 @@ class ThemeManager: ObservableObject {
         let purchasedIDsActuallyChanged = (self.purchasedThemeIDs != oldPurchasedIDs)
 
         if purchasedIDsActuallyChanged {
-             print("ThemeManager: purchasedThemeIDs (Theme.id) updated due to StoreKit: \(self.purchasedThemeIDs)")
+            print("ThemeManager: purchasedThemeIDs (Theme.id) updated due to StoreKit: \(self.purchasedThemeIDs)")
             print("ThemeManager: Syncing updated purchased themes to CloudKit via AuthManager.")
             authManager.updateUserPurchasedThemes(themeIDs: self.purchasedThemeIDs)
 
@@ -204,12 +206,14 @@ class ThemeManager: ObservableObject {
             newPurchased.formUnion(userProfile.purchasedThemeIDs)
             print("ThemeManager rebuild (iCloud user \(userProfile.id)): Loaded \(userProfile.purchasedThemeIDs.count) themes from CloudKit profile. Combined with free: \(newPurchased.count)")
         } else {
-            print("ThemeManager rebuild (No iCloud user or iCloud disabled): Only free themes considered purchased from app's perspective.")
+            print("ThemeManager rebuild (No iCloud user or iCloud disabled): No purchased themes from iCloud.")
         }
         
         if self.purchasedThemeIDs != newPurchased {
             self.purchasedThemeIDs = newPurchased
-            print("ThemeManager: purchasedThemeIDs rebuilt. Final set: \(self.purchasedThemeIDs)")
+            print("ThemeManager: purchasedThemeIDs confirms. Free and purchased themes from StoreKit. Final set: \(self.purchasedThemeIDs)")
+        }else{
+            print("ThemeManager: purchasedThemeIDs confirms. Only Free themes can apply. Final set: \(self.purchasedThemeIDs)")
         }
 
         let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
@@ -275,4 +279,5 @@ class ThemeManager: ObservableObject {
     func isThemePurchased(_ theme: Theme) -> Bool {
         return !theme.isPremium || purchasedThemeIDs.contains(theme.id)
     }
+
 }

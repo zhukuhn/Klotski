@@ -526,8 +526,8 @@ class GameManager: ObservableObject {
         
         // Leaderboard IDs should be defined in App Store Connect
         // Example format: com.yourbundleid.levelname.moves or com.yourbundleid.levelname.time
-        let movesLeaderboardID = "\(levelID)_moves_klotski_v1" // Make these unique and match App Store Connect
-        let timeLeaderboardID = "\(levelID)_time_klotski_v1"   // Make these unique and match App Store Connect
+        let movesLeaderboardID = "\(levelID)_moves" // Make these unique and match App Store Connect
+        let timeLeaderboardID = "\(levelID)_time"   // Make these unique and match App Store Connect
 
         print("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
         GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { error in
@@ -551,6 +551,42 @@ class GameManager: ObservableObject {
             }
         }
     }
+
+    @MainActor // 确保在主线程，因为会与 GameKit 交互
+    func syncAllLocalBestScoresToGameCenter() {
+        guard GKLocalPlayer.local.isAuthenticated else {
+            print("Game Center: Player not authenticated. Cannot sync all local best scores.")
+            // 考虑给用户提示，例如弹窗或信息条
+            // 可以通过 AuthManager 或 SettingsManager 发布一个错误/消息
+            return
+        }
+
+        print("GameManager: Attempting to sync all local best scores to Game Center...")
+        var submittedCount = 0
+        var skippedCount = 0
+
+        for level in levels {
+            if let bestMoves = level.bestMoves, let bestTime = level.bestTime {
+                print("GameManager: Syncing score for level '\(level.name)' (ID: \(level.id)) - Moves: \(bestMoves), Time: \(String(format: "%.2f", bestTime))s")
+                // 调用现有的提交函数
+                // submitScoreToLeaderboard 已经包含了 Game Center 认证检查，但我们在此函数开头进行一次总检查更好
+                submitScoreToLeaderboard(levelID: level.id, moves: bestMoves, time: bestTime)
+                submittedCount += 1
+            } else {
+                print("GameManager: No local best score for level '\(level.name)' (ID: \(level.id)). Skipping sync for this level.")
+                skippedCount += 1
+            }
+        }
+
+        if submittedCount > 0 {
+            print("GameManager: Sync process completed. Attempted to submit \(submittedCount) scores.")
+            // 可以在此通知用户同步已尝试（成功与否取决于 Game Center 的响应）
+        }
+        if skippedCount > 0 && submittedCount == 0 {
+            print("GameManager: Sync process completed. No local scores found to submit.")
+            // 提示用户没有可同步的本地成绩
+        } else if skippedCount > 0 {
+            print("GameManager: Skipped \(skippedCount) levels as they had no local best scores.")
+        }
+    }
 }
-
-

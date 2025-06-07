@@ -10,6 +10,8 @@
 		F77484D72DDF06FC00BD61B6 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = F77484D62DDF06FC00BD61B6 /* FirebaseAnalytics */; };
 		F77484D92DDF06FC00BD61B6 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = F77484D82DDF06FC00BD61B6 /* FirebaseAuth */; };
 		F77484DB2DDF06FC00BD61B6 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = F77484DA2DDF06FC00BD61B6 /* FirebaseFirestore */; };
+		F7A0957A2DF327CA003BA686 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F7A095792DF327C9003BA686 /* StoreKit.framework */; };
+		F7A095822DF34F0F003BA686 /* KlotskiStore.storekit in Resources */ = {isa = PBXBuildFile; fileRef = F7A095812DF34F0F003BA686 /* KlotskiStore.storekit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,6 +35,8 @@
 		F774C3D92DD376FA00850422 /* Klotski.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klotski.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F774C3E92DD376FC00850422 /* KlotskiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KlotskiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F774C3F32DD376FC00850422 /* KlotskiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KlotskiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7A095792DF327C9003BA686 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
+		F7A095812DF34F0F003BA686 /* KlotskiStore.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KlotskiStore.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -61,6 +65,7 @@
 				F77484D72DDF06FC00BD61B6 /* FirebaseAnalytics in Frameworks */,
 				F77484D92DDF06FC00BD61B6 /* FirebaseAuth in Frameworks */,
 				F77484DB2DDF06FC00BD61B6 /* FirebaseFirestore in Frameworks */,
+				F7A0957A2DF327CA003BA686 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,9 +89,11 @@
 		F774C3D02DD376FA00850422 = {
 			isa = PBXGroup;
 			children = (
+				F7A095812DF34F0F003BA686 /* KlotskiStore.storekit */,
 				F774C3DB2DD376FA00850422 /* Klotski */,
 				F774C3EC2DD376FC00850422 /* KlotskiTests */,
 				F774C3F62DD376FC00850422 /* KlotskiUITests */,
+				F7A095782DF327C9003BA686 /* Frameworks */,
 				F774C3DA2DD376FA00850422 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -99,6 +106,14 @@
 				F774C3F32DD376FC00850422 /* KlotskiUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		F7A095782DF327C9003BA686 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				F7A095792DF327C9003BA686 /* StoreKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -227,6 +242,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F7A095822DF34F0F003BA686 /* KlotskiStore.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

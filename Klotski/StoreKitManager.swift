@@ -215,9 +215,10 @@ class StoreKitManager: ObservableObject {
         }
         self.isLoading = false
     }
-    
+
     func checkForCurrentEntitlements() async {
-        print("StoreKitManager: Checking for current entitlements...")
+        print(String(repeating:"-",count:100))
+        print("StoreKitManager: Checking for current entitlements")
         var successfullyEntitledProductIDs = Set<String>()
         var entitlementsFound = false
         
@@ -244,6 +245,7 @@ class StoreKitManager: ObservableObject {
             print("StoreKitManager: Successfully processed current entitlements for IDs: \(successfullyEntitledProductIDs)")
             purchaseOrRestoreSuccessfulPublisher.send(successfullyEntitledProductIDs)
         }
+        print(String(repeating:"-",count:100))
     }
 }
 

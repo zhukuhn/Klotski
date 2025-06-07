@@ -457,6 +457,31 @@ class AuthManager: ObservableObject {
             print("AuthManager: No change in purchased themes. Skipping save.")
         }
     }
+    //开发者按钮：重置账户付费ID
+    func resetPurchasedThemesInCloud() {
+        print("AuthManager: Attempting to reset purchased themes in CloudKit...")
+        
+        // 1. 确保用户已登录
+        guard self.isLoggedIn, var profileToUpdate = self.currentUser else {
+            print("AuthManager: Cannot reset themes. User is not logged in.")
+            return
+        }
+        
+        // 2. 创建一个只包含免费主题ID的集合
+        let freeThemeIDs = Set(AppThemeRepository.allThemes.filter { !$0.isPremium }.map { $0.id })
+        
+        // 3. 检查是否有变化 (例如，如果已经是重置状态，则无需操作)
+        if profileToUpdate.purchasedThemeIDs == freeThemeIDs {
+            print("AuthManager: Purchased themes are already in a reset state (only free themes). No action needed.")
+            return
+        }
+        
+        print("AuthManager: Resetting purchased themes to only include free themes: \(freeThemeIDs)")
+        
+        // 4. 更新本地 profile 并调用现有的保存逻辑
+        // 我们复用 updateUserPurchasedThemes 方法，它内部包含了保存到 CloudKit 的逻辑
+        self.updateUserPurchasedThemes(themeIDs: freeThemeIDs)
+    }
 }
 
 extension CKAccountStatus {
