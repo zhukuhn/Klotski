@@ -462,7 +462,7 @@ class AuthManager: ObservableObject {
         print("AuthManager: Attempting to reset purchased themes in CloudKit...")
         
         // 1. 确保用户已登录
-        guard self.isLoggedIn, var profileToUpdate = self.currentUser else {
+        guard self.isLoggedIn, let profileToUpdate = self.currentUser else {
             print("AuthManager: Cannot reset themes. User is not logged in.")
             return
         }

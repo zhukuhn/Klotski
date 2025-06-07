@@ -19,25 +19,27 @@ struct GameView: View {
     @State private var pieceInitialGridPos_onDragStart: CGPoint? = nil
     @State private var fingerStartScreenPos_onDragStart: CGPoint? = nil
     @State private var currentValidCumulativeGridOffset: CGSize = .zero
-    @State private var dragSnapThresholdFactor: CGFloat = 0.2 // 拖动阈值
+    @State private var dragSnapThresholdFactor: CGFloat = 0.3 // 拖动阈值
 
     @State private var navigateToLevelSelection = false
+
+    // 获取当前主题的渲染策略
+    private var themeFactory: any ThemeableViewFactory {
+        themeManager.currentTheme.viewFactory
+    }
     
-    private let boardPadding: CGFloat = 10
     private let controlButtonSize: CGFloat = 44
-    private let panelWidthRatio: CGFloat = 0.85 // 面板宽度占屏幕宽度的比例，可以调整
-    private let panelCornerRadius: CGFloat = 20 // 面板圆角
 
     private func calculateCellSize(geometry: GeometryProxy, boardWidthCells: Int, boardHeightCells: Int) -> CGFloat {
+        let boardPadding: CGFloat = 10
         guard boardWidthCells > 0, boardHeightCells > 0 else { return 1 }
         let availableWidth = geometry.size.width - (boardPadding * 2)
-        let controlAreaHeight = controlButtonSize + 15 + 60 // 大约是两行按钮的高度和间距
+        let controlAreaHeight = controlButtonSize + 15 + 60 + 80 // 增加了更多控制区域高度的估算
         let availableHeight = (geometry.size.height * 0.9) - (boardPadding * 2) - controlAreaHeight
         guard availableWidth > 0, availableHeight > 0 else { return 1 }
-        return max(1, min(availableWidth / CGFloat(boardWidthCells), availableHeight / CGFloat(boardHeightCells), 80)) // Max cell size 80
+        return max(1, min(availableWidth / CGFloat(boardWidthCells), availableHeight / CGFloat(boardHeightCells), 80))
     }
 
-    // 自定义带阈值的取整函数
     private func customRoundWithThreshold(_ value: CGFloat, threshold: CGFloat) -> Int {
         let av = abs(value); let sign = value >= 0 ? 1 : -1
         return av.truncatingRemainder(dividingBy: 1.0) >= threshold ? Int(ceil(av)) * sign : Int(floor(av)) * sign
@@ -45,25 +47,23 @@ struct GameView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack { // 主 ZStack，用于容纳游戏内容和各种浮层/面板
+            ZStack {
+                // 由主题工厂提供背景
+                AnyView(themeFactory.gameBackground())
+
                 // 游戏核心内容区域
                 gameAreaView(geometry: geometry)
-                    //.blur(radius: showLevelSelectionPanel || (gameManager.isPaused && !gameManager.isGameWon) ? 5 : 0) // 面板或暂停时模糊背景
-                    //.allowsHitTesting(!(showLevelSelectionPanel || (gameManager.isPaused && !gameManager.isGameWon))) // 面板或暂停时禁用背景交互
-
             }
             .navigationTitle(gameManager.currentLevel?.name ?? settingsManager.localizedString(forKey: "gameTitle"))
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true) // 始终隐藏系统返回按钮
-            .toolbar { navigationToolbarItems } // 自定义工具栏
-            .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
+            .navigationBarBackButtonHidden(true)
+            .toolbar { navigationToolbarItems }
             .onAppear(perform: setupGameView)
             .onDisappear(perform: cleanupGameView)
             .navigationDestination(isPresented: $navigateToLevelSelection) {
                 LevelSelectionView(
-                    isPresentedAsPanel: false, // 确保它被视为完整视图
-                    // dismissPanelAction 此处不需要，因为它不是面板
-                    onLevelSelected: { self.navigateToLevelSelection = false } // 用于关闭此视图的回调
+                    isPresentedAsPanel: false,
+                    onLevelSelected: { self.navigateToLevelSelection = false }
                 )
             }
         }
@@ -80,29 +80,29 @@ struct GameView: View {
                     gameInfoView.padding(.horizontal, 20).padding(.top, 15).padding(.bottom, 5)
                     bestRecordsView.padding(.bottom, 10)
                     
-                    // 棋盘和棋子
                     ZStack {
-                        BoardBackgroundView(widthCells: level.boardWidth, heightCells: level.boardHeight, cellSize: cellSize, theme: themeManager.currentTheme)
+                        // 由主题工厂提供棋盘背景
+                        AnyView(themeFactory.boardBackground(widthCells: level.boardWidth, heightCells: level.boardHeight, cellSize: cellSize))
                             .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
+
                         ForEach(gameManager.pieces) { piece in
-                            PieceView(piece: piece, cellSize: cellSize, theme: themeManager.currentTheme, isDragging: piece.id == draggingPieceID)
+                            // 由主题工厂提供棋子视图
+                            AnyView(themeFactory.pieceView(for: piece, cellSize: cellSize, isDragging: piece.id == draggingPieceID))
+                                .frame(width: CGFloat(piece.width) * cellSize - 2, height: CGFloat(piece.height) * cellSize - 2)
                                 .position(x: CGFloat(piece.x) * cellSize + (CGFloat(piece.width) * cellSize / 2), y: CGFloat(piece.y) * cellSize + (CGFloat(piece.height) * cellSize / 2))
                                 .offset(x: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.width * cellSize : 0, y: piece.id == draggingPieceID ? currentValidCumulativeGridOffset.height * cellSize : 0)
                                 .gesture(pieceDragGesture(piece: piece, cellSize: cellSize))
                         }
 
-                        // 暂停浮层 (在选择关卡面板之下，游戏内容之上)
                         if gameManager.isPaused && !gameManager.isGameWon {
                             pauseOverlay
                         }
 
-                        // 胜利浮层 (最高优先级)
                         if gameManager.isGameWon {
                             victoryOverlay
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .background(Color.black.opacity(0.7).ignoresSafeArea())
                         }
-
                     }
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameManager.pieces)
                     .frame(width: cellSize * CGFloat(level.boardWidth), height: cellSize * CGFloat(level.boardHeight))
@@ -214,7 +214,7 @@ struct GameView: View {
                     .padding(.horizontal, 30) // 增加按钮内边距
                     .padding(.vertical, 15)
             }
-            .buttonStyle(MenuButtonStyle(themeManager: themeManager)) // 应用统一样式
+            .buttonStyle(themeFactory.menuButtonStyle()) // 应用统一样式
         }
         .padding(EdgeInsets(top: 40, leading: 30, bottom: 40, trailing: 30)) // 调整整体内边距
         .background(themeManager.currentTheme.sliderColor.color.opacity(0.9)) // 背景更不透明一些

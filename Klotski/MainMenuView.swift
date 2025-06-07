@@ -16,104 +16,97 @@ struct MainMenuView: View {
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var themeManager: ThemeManager
     
-    @State private var navigateToLeaderboardView = false // 新增状态变量
-
-    // MARK: State Variables
-    // @State private var showingLoginSheet = false    // 控制登录表单是否显示 (Currently unused due to iCloud focus)
-    // @State private var showingRegisterSheet = false // 控制注册表单是否显示 (Currently unused)
+    @State private var navigateToLeaderboardView = false
+    
+    // 获取当前主题的按钮样式
+    private var menuButtonStyle: AnyButtonStyle {
+        themeManager.currentTheme.viewFactory.menuButtonStyle()
+    }
 
     // MARK: Body
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) { // 主垂直堆栈，用于排列菜单项
-                // 游戏标题
-                Text(settingsManager.localizedString(forKey: "gameTitle"))
-                   .font(.system(size: 36, weight: .bold, design: .rounded))
-                   .padding(.top, 40) // 顶部留白
-                   .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用主题颜色
-                
-                Spacer() // 弹性空间，将按钮推向中心
+            // --- 已修正：使用 ZStack 来承载背景和内容 ---
+            ZStack {
+                // 第 1 层：由主题工厂提供背景
+                AnyView(themeManager.currentTheme.viewFactory.gameBackground())
 
-                // "开始游戏" 按钮
-                Button(action: {
-                    SoundManager.playImpactHaptic(settings: settingsManager)
-                    if let firstLevel = gameManager.levels.first {
-                        gameManager.clearSavedGame()
-                        gameManager.startGame(level: firstLevel, settings: settingsManager, isNewSession: true)
-                    } else {
-                        print("错误：关卡列表为空，无法开始游戏！")
-                    }
-                }) {
-                    MenuButton(title: settingsManager.localizedString(forKey: "startGame"))
-                }
+                // 第 2 层：页面内容
+                VStack(spacing: 20) {
+                    Text(settingsManager.localizedString(forKey: "gameTitle"))
+                       .font(.system(size: 36, weight: .bold, design: .rounded))
+                       .padding(.top, 40)
+                       .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                    
+                    Spacer()
 
-                // "继续游戏" 按钮
-                if gameManager.hasSavedGame {
-                    Button(action: {
+                    Button(settingsManager.localizedString(forKey: "startGame")) {
                         SoundManager.playImpactHaptic(settings: settingsManager)
-                        gameManager.continueGame(settings: settingsManager)
-                    }) {
-                        MenuButton(title: settingsManager.localizedString(forKey: "continueGame"))
+                        if let firstLevel = gameManager.levels.first {
+                            gameManager.clearSavedGame()
+                            gameManager.startGame(level: firstLevel, settings: settingsManager, isNewSession: true)
+                        }
                     }
-                }
-                
-                // "选择关卡" 导航链接
-                NavigationLink(destination: LevelSelectionView()) {
-                     MenuButton(title: settingsManager.localizedString(forKey: "selectLevel"))
-                }
-                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
+                    .buttonStyle(menuButtonStyle)
 
-                // "主题" 导航链接
-                NavigationLink(destination: ThemeSelectionView()) {
-                    MenuButton(title: settingsManager.localizedString(forKey: "themes"))
-                }
-                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
-
-                // "排行榜" 按钮
-                Button(action: {
-                    SoundManager.playImpactHaptic(settings: settingsManager) //
-
-                    // 1. 触发同步所有本地成绩的操作
-                    Task { // 使用 Task 进行异步操作
-                        await gameManager.syncAllLocalBestScoresToGameCenter()
+                    if gameManager.hasSavedGame {
+                        Button(settingsManager.localizedString(forKey: "continueGame")) {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            gameManager.continueGame(settings: settingsManager)
+                        }
+                        .buttonStyle(menuButtonStyle)
                     }
+                    
+                    NavigationLink(destination: LevelSelectionView()) {
+                         Text(settingsManager.localizedString(forKey: "selectLevel"))
+                    }
+                    .buttonStyle(menuButtonStyle)
+                    .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
-                    // 2. 触发导航到排行榜视图
-                    self.navigateToLeaderboardView = true
-                }) {
-                    MenuButton(title: settingsManager.localizedString(forKey: "leaderboard")) //
+                    NavigationLink(destination: ThemeSelectionView()) {
+                        Text(settingsManager.localizedString(forKey: "themes"))
+                    }
+                    .buttonStyle(menuButtonStyle)
+                    .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
+
+                    Button(settingsManager.localizedString(forKey: "leaderboard")) {
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        Task {
+                            await gameManager.syncAllLocalBestScoresToGameCenter()
+                        }
+                        self.navigateToLeaderboardView = true
+                    }
+                    .buttonStyle(menuButtonStyle)
+
+                    NavigationLink(destination: SettingsView()) {
+                        Text(settingsManager.localizedString(forKey: "settings"))
+                    }
+                    .buttonStyle(menuButtonStyle)
+                    .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
+                    
+                    Button("查询"){
+                        fetchPlayerScore(leaderboardID: "classic_hdml_moves")
+                    }
+        
+                    Spacer()
+
+                    authStatusFooter().padding(.bottom)
                 }
-
-                // "设置" 导航链接
-                NavigationLink(destination: SettingsView()) {
-                    MenuButton(title: settingsManager.localizedString(forKey: "settings"))
-                }
-                .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
-                
-                Button("查询"){
-                    fetchPlayerScore(leaderboardID: "classic_hdml_moves")
-                }
-    
-                Spacer()
-
-                // Auth Status Display (Simplified for iCloud)
-                authStatusFooter().padding(.bottom)
-
+               .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-           .frame(maxWidth: .infinity, maxHeight: .infinity)
-           .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
            .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
            .navigationDestination(isPresented: $navigateToLeaderboardView) { LeaderboardView() }
            .onAppear {
                 if settingsManager.useiCloudLogin {
                     // authManager.refreshAuthenticationState()
                 }
-                print("MainMenuView onAppear: useiCloudLogin = \(settingsManager.useiCloudLogin), isLoggedIn = \(authManager.isLoggedIn)")
            }
         }
         .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
     }
     
+    // ... 其余 MainMenuView 代码 (authStatusFooter, etc.) 保持不变 ...
+    // --- (篇幅原因，此处省略未改变的代码) ---
     @ViewBuilder
     private func authStatusFooter() -> some View {
         VStack {
@@ -121,7 +114,7 @@ struct MainMenuView: View {
                 if authManager.isLoading {
                     ProgressView()
                        .padding(.bottom, 5)
-                    Text(settingsManager.localizedString(forKey: "iCloudCheckingStatus")) // "正在检查iCloud状态..."
+                    Text(settingsManager.localizedString(forKey: "iCloudCheckingStatus"))
                        .font(.caption)
                        .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
                 } else if authManager.isLoggedIn, let user = authManager.currentUser {
@@ -130,31 +123,30 @@ struct MainMenuView: View {
                        .foregroundColor(themeManager.currentTheme.sliderColor.color)
                        .padding(.bottom, 5)
                 } else if authManager.iCloudAccountStatus == .noAccount {
-                     Text(settingsManager.localizedString(forKey: "iCloudNoAccountDetailed")) // "未登录iCloud账户。请前往设备设置登录以使用云功能。"
+                     Text(settingsManager.localizedString(forKey: "iCloudNoAccountDetailed"))
                        .font(.caption)
                        .foregroundColor(.orange)
                        .multilineTextAlignment(.center)
                        .padding(.horizontal)
                 } else if authManager.iCloudAccountStatus != .available && authManager.errorMessage != nil {
-                     // Use specific localized messages from AuthManager if available, or a generic one
                     Text(authManager.errorMessage ?? settingsManager.localizedString(forKey: "iCloudConnectionError"))
                         .font(.caption)
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
-                } else if authManager.iCloudAccountStatus == .available && !authManager.isLoggedIn && !authManager.isLoading { // Added !authManager.isLoading
-                     Text(settingsManager.localizedString(forKey: "iCloudSyncError")) // "iCloud可用，但应用未能同步用户数据。"
+                } else if authManager.iCloudAccountStatus == .available && !authManager.isLoggedIn && !authManager.isLoading {
+                     Text(settingsManager.localizedString(forKey: "iCloudSyncError"))
                        .font(.caption)
                        .foregroundColor(.orange)
                        .multilineTextAlignment(.center)
                        .padding(.horizontal)
-                } else if !authManager.isLoggedIn && !authManager.isLoading { // Generic message if not loading and not logged in
-                    Text(settingsManager.localizedString(forKey: "iCloudLoginPrompt")) // "iCloud功能需要登录。请检查设置。"
+                } else if !authManager.isLoggedIn && !authManager.isLoading {
+                    Text(settingsManager.localizedString(forKey: "iCloudLoginPrompt"))
                        .font(.caption)
                        .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
                 }
             } else {
-                Text(settingsManager.localizedString(forKey: "iCloudDisabledInSettings")) // "iCloud登录已禁用。云同步功能不可用。"
+                Text(settingsManager.localizedString(forKey: "iCloudDisabledInSettings"))
                    .font(.caption)
                    .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
                    .multilineTextAlignment(.center)
@@ -162,48 +154,6 @@ struct MainMenuView: View {
             }
         }
         .frame(minHeight: 50)
-    }
-}
-
-// MARK: 菜单按钮
-struct MenuButtonStyle: ButtonStyle {
-    @ObservedObject var themeManager: ThemeManager
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-            .fontWeight(.medium)
-            .padding()
-            .frame(maxWidth: 280, minHeight: 50)
-            .background(themeManager.currentTheme.sliderColor.color.opacity(configuration.isPressed ? 0.7 : 0.9))
-            .foregroundColor(themeManager.currentTheme.backgroundColor.color)
-            .cornerRadius(12)
-            .shadow(color: themeManager.currentTheme.sliderColor.color.opacity(0.3), radius: configuration.isPressed ? 3 : 5, x: 0, y: configuration.isPressed ? 1 : 2)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-struct MenuButton: View {
-    let title: String
-    @EnvironmentObject var themeManager: ThemeManager
-
-    var body: some View {
-        Text(title)
-           .modifier(MenuButtonViewModifier(themeManager: themeManager))
-    }
-}
-struct MenuButtonViewModifier: ViewModifier {
-    @ObservedObject var themeManager: ThemeManager
-    func body(content: Content) -> some View {
-        content
-            .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-            .fontWeight(.medium)
-            .padding()
-            .frame(maxWidth: 280, minHeight: 50)
-            .background(themeManager.currentTheme.sliderColor.color.opacity(0.9))
-            .foregroundColor(themeManager.currentTheme.backgroundColor.color)
-            .cornerRadius(12)
-            .shadow(color: themeManager.currentTheme.sliderColor.color.opacity(0.3), radius: 5, x: 0, y: 2)
     }
 }
 

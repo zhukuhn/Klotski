@@ -118,7 +118,7 @@ struct KlotskiApp: App {
         print("Attempting to authenticate Game Center player (current state: \(isGameCenterAuthenticated)).")
         GKLocalPlayer.local.authenticateHandler = { viewController, error in
             DispatchQueue.main.async {
-                if let vc = viewController {
+                if viewController != nil {
                     print("Game Center: Needs to present authentication view controller.")
                     // 如果需要显示 Game Center 的登录界面，它会在此处以模态形式呈现
                     // 您需要找到应用当前的根视图控制器来 present 这个 vc
