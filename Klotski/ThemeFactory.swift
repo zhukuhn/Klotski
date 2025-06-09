@@ -102,7 +102,6 @@ struct AppThemeRepository {
               fontName: "AvenirNext-Regular",
               colorScheme: .dark),
               
-        // --- 新增的免费主题 ---
         Theme(id: "toonPudding", name: "卡通布丁", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: Color(hex: "#FFF5E1")), // 柔和的奶油黄
               sliderColor: CodableColor(color: Color(hex: "#FFC93C")),     // 明亮的芒果黄
@@ -130,18 +129,17 @@ struct AppThemeRepository {
               fontName: "AvenirNext-Heavy",
               colorScheme: .light),
 
-        // --- 新增：浓情巧克力主题 ---
-        Theme(id: "photoRealChocolate", name: "真实巧克力", isPremium: false, productID: nil,
-              backgroundColor: CodableColor(color: Color(hex: "#3D2B1F")), // 背景色作为图片加载失败时的后备
-              sliderColor: CodableColor(color: Color(hex: "#F5EDE3")), 
-              sliderTextColor: CodableColor(color: Color(hex: "#6F4E37")), // 用于按钮文字
-              boardBackgroundColor: CodableColor(color: Color(hex: "#5C4033")), // 棋盘背景色
-              boardGridLineColor: CodableColor(color: .clear), // 棋盘不需要网格线
-              sliderContent: .none, // 滑块内容由图片决定，而非文字
-              fontName: "Georgia-Bold", // 用于按钮字体
-              colorScheme: .dark),
         
-        // 保留旧的高级主题，可以设为免费或之后再调整
+        Theme(id: "photoRealChocolate", name: "真实巧克力", isPremium: false, productID: nil,
+                      backgroundColor: CodableColor(color: Color(hex: "#3D2B1F")), // 背景色作为图片加载失败时的后备
+                      sliderColor: CodableColor(color: Color(hex: "#8B5E3C")), // 用于按钮主体色
+                      sliderTextColor: CodableColor(color: .white), // 用于按钮图标
+                      boardBackgroundColor: CodableColor(color: Color(hex: "#5C4033")), // 棋盘背景色
+                      boardGridLineColor: CodableColor(color: .clear), // 棋盘不需要网格线
+                      sliderContent: .none, // 滑块内容由代码绘制，而非文字
+                      fontName: "Georgia-Bold", // 用于按钮字体
+                      colorScheme: .dark),
+        
         Theme(id: "dark", name: "深邃夜空", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .black),
               sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
@@ -494,62 +492,129 @@ struct ChocolateThemeRenderer: ThemeableViewFactory {
     private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat { max(14, cellSize * 0.45) }
 }
 
+// 真实巧克力
 struct PhotoRealChocolateThemeRenderer: ThemeableViewFactory {
     private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "photoRealChocolate" }!
 
-    /// 游戏背景：使用指定的背景图片
     func gameBackground() -> any View {
         Image("chocolate_background")
             .resizable()
             .scaledToFill()
             .ignoresSafeArea()
-            .overlay(Color.black.opacity(0.1)) // 增加一层淡淡的黑色蒙版，让前景更突出
+            .overlay(Color.black.opacity(0.2))
     }
 
-    /// 棋盘背景：使用半透明磨砂效果，透出背景纹理
     func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(theme.boardBackgroundColor.color.opacity(0.4))
-            .background(.ultraThinMaterial) // 核心：磨砂玻璃效果
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: .black.opacity(0.3), radius: 15, x: 0, y: 10)
+        let boardShape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        return boardShape
+            .fill(theme.boardBackgroundColor.color.opacity(0.5))
+            .background(.ultraThinMaterial)
+            .clipShape(boardShape)
+            .overlay(
+                boardShape
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 25, x: 0, y: 15)
     }
 
-    /// 棋子视图：根据棋子尺寸加载不同的图片
     func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
-        let imageName: String
-        var rotation: Angle = .zero
-
-        // 根据棋子尺寸选择对应的图片名称
-        switch (piece.width, piece.height) {
-        case (2, 2):
-            imageName = "piece_chocolate_2x2" // 曹操
-        case (1, 2):
-            imageName = "piece_chocolate_1x2" // 竖着的“将”
-        case (2, 1):
-            imageName = "piece_chocolate_1x2" // 横着的“将”
-            rotation = .degrees(90) // 旋转90度
-        default: // 1x1
-            imageName = "piece_chocolate_1x1" // 兵
+        let content = ZStack {
+            switch (piece.width, piece.height) {
+            case (2, 2):
+                ChocolatePieceView(isDragging: isDragging, config: .dark)
+            case (1, 2), (2, 1):
+                ChocolatePieceView(isDragging: isDragging, config: .milk)
+            default: // 1x1
+                ChocolatePieceView(isDragging: isDragging, config: .white)
+            }
         }
 
-        return Image(imageName)
-            .resizable()
-            .scaledToFit()
-            .rotationEffect(rotation)
-            .shadow(color: .black.opacity(isDragging ? 0.4 : 0.25), radius: isDragging ? 10 : 5, y: isDragging ? 8 : 4)
+        return content
+            .frame(width: CGFloat(piece.width) * cellSize, height: CGFloat(piece.height) * cellSize)
             .scaleEffect(isDragging ? 1.05 : 1.0)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDragging)
     }
     
-    /// 菜单按钮样式：使用新的图片按钮样式
     func menuButtonStyle() -> AnyButtonStyle {
-        AnyButtonStyle(PhotoRealChocolateButtonStyle(theme: theme))
+        AnyButtonStyle(ChocolateButtonStyle(theme: theme))
     }
 }
 
-/// 新增：用于真实巧克力主题的按钮样式
-struct PhotoRealChocolateButtonStyle: ButtonStyle {
+
+// MARK: - Unified Chocolate Piece View (Final Design)
+
+/// 统一的巧克力块视图，采用浮雕设计
+private struct ChocolatePieceView: View {
+    let isDragging: Bool
+    let config: ChocolateConfig
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        
+        ZStack {
+            // 主体颜色
+            shape.fill(config.baseColor)
+            
+            // 内阴影 - 营造凹陷感/立体感
+            shape
+                .strokeBorder(
+                    LinearGradient(
+                        gradient: Gradient(colors: [config.innerShadowColor.opacity(0.8), .clear]),
+                        startPoint: .bottomTrailing,
+                        endPoint: .topLeading
+                    ),
+                    lineWidth: 5
+                )
+                .clipped()
+            
+            // 表面高光
+//            shape.fill(
+//                RadialGradient(
+//                    gradient: Gradient(colors: [config.highlightColor, .clear]),
+//                    center: .topLeading,
+//                    startRadius: 1,
+//                    endRadius: 100
+//                )
+//            )
+        }
+        // 外阴影 - 营造悬浮感
+//        .shadow(color: config.dropShadowColor.opacity(isDragging ? 0.6 : 0.45),
+//                radius: isDragging ? 12 : 8,
+//                y: isDragging ? 10 : 7)
+    }
+}
+
+/// 巧克力颜色和样式的配置
+private struct ChocolateConfig {
+    let baseColor: Color
+    let innerShadowColor: Color
+    let highlightColor: Color
+    let dropShadowColor: Color
+
+    static let dark = ChocolateConfig(
+        baseColor: Color(hex: "#422820"),
+        innerShadowColor: Color(hex: "#2E1E18"),
+        highlightColor: .white.opacity(0.35),
+        dropShadowColor: .black
+    )
+
+    static let milk = ChocolateConfig(
+        baseColor: Color(hex: "#9F6B47"),
+        innerShadowColor: Color(hex: "#7F5636"),
+        highlightColor: .white.opacity(0.35),
+        dropShadowColor: .black
+    )
+
+    static let white = ChocolateConfig(
+        baseColor: Color(hex: "#FDF6E9"), // 奶油白
+        innerShadowColor: Color(hex: "#EAE0D1"),
+        highlightColor: .white.opacity(0.35),
+        dropShadowColor: .black
+    )
+}
+
+/// 用于新巧克力主题的按钮样式 (代码实现)
+struct ChocolateButtonStyle: ButtonStyle {
     let theme: Theme
     
     func makeBody(configuration: Configuration) -> some View {
@@ -557,17 +622,24 @@ struct PhotoRealChocolateButtonStyle: ButtonStyle {
             .font(.custom(theme.fontName ?? "Georgia-Bold", size: 20))
             .fontWeight(.bold)
             .padding(.vertical, 12)
-            .frame(maxWidth: 200)
-            .foregroundColor(theme.sliderTextColor.color)
+            .frame(maxWidth: 220)
+            .foregroundColor(Color(hex: "#F5EDE3")) // 象牙白文字
             .background(
-                Image("button_chocolate_texture")
-                    .resizable()
-                    .scaledToFill()
+                // 使用与牛奶巧克力类似的渐变
+                LinearGradient(
+                    gradient: Gradient(colors: [Color(hex: "#A0522D"), Color(hex: "#8B4513")]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             )
-            .clipShape(Capsule()) // 核心修正：将整个视图（文字+背景图）裁剪成胶囊形
-            .brightness(configuration.isPressed ? -0.1 : 0) // 对裁剪后的视图应用亮度效果
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color(hex: "#6F4E37").opacity(0.8), lineWidth: 2)
+            )
             .shadow(color: .black.opacity(0.3), radius: configuration.isPressed ? 3 : 6, y: configuration.isPressed ? 2 : 5)
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .brightness(configuration.isPressed ? -0.1 : 0)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
