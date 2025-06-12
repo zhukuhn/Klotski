@@ -9,13 +9,17 @@ import StoreKit
 import GameKit
 
 // MARK: - MainMenuView
+
 struct MainMenuView: View {
     // MARK: Environment Objects
     @EnvironmentObject var gameManager: GameManager
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var themeManager: ThemeManager
-    
+
+    @State private var showLevelSelection = false
+    @State private var showThemeSelection = false
+    @State private var showSettings = false
     @State private var navigateToLeaderboardView = false
     
     // 获取当前主题的按钮样式
@@ -24,19 +28,20 @@ struct MainMenuView: View {
     }
 
     // MARK: Body
+
     var body: some View {
         NavigationStack {
-            // --- 已修正：使用 ZStack 来承载背景和内容 ---
-            ZStack {
-                // 第 1 层：由主题工厂提供背景
+            GeometryReader { geometry in
+            ZStack() {
                 AnyView(themeManager.currentTheme.viewFactory.gameBackground())
-
-                // 第 2 层：页面内容
+                //.ignoresSafeArea()
+                
+                // 2. UI 内容层
                 VStack(spacing: 20) {
                     Text(settingsManager.localizedString(forKey: "gameTitle"))
-                       .font(.system(size: 36, weight: .bold, design: .rounded))
-                       .padding(.top, 40)
-                       .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .padding(.top, 40)
+                    .foregroundColor(themeManager.currentTheme.sliderColor.color)
                     
                     Spacer()
 
@@ -57,56 +62,61 @@ struct MainMenuView: View {
                         .buttonStyle(menuButtonStyle)
                     }
                     
-                    NavigationLink(destination: LevelSelectionView()) {
-                         Text(settingsManager.localizedString(forKey: "selectLevel"))
+                    Button(settingsManager.localizedString(forKey: "selectLevel")) {
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        self.showLevelSelection = true
                     }
                     .buttonStyle(menuButtonStyle)
-                    .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
-                    NavigationLink(destination: ThemeSelectionView()) {
-                        Text(settingsManager.localizedString(forKey: "themes"))
+                    Button(settingsManager.localizedString(forKey: "themes")) {
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        self.showThemeSelection = true
                     }
                     .buttonStyle(menuButtonStyle)
-                    .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
 
                     Button(settingsManager.localizedString(forKey: "leaderboard")) {
                         SoundManager.playImpactHaptic(settings: settingsManager)
-                        Task {
-                            await gameManager.syncAllLocalBestScoresToGameCenter()
-                        }
+                        Task { await gameManager.syncAllLocalBestScoresToGameCenter() }
                         self.navigateToLeaderboardView = true
                     }
                     .buttonStyle(menuButtonStyle)
-
-                    NavigationLink(destination: SettingsView()) {
-                        Text(settingsManager.localizedString(forKey: "settings"))
+                    
+                    Button(settingsManager.localizedString(forKey: "settings")) {
+                        SoundManager.playImpactHaptic(settings: settingsManager)
+                        self.showSettings = true
                     }
                     .buttonStyle(menuButtonStyle)
-                    .simultaneousGesture(TapGesture().onEnded { SoundManager.playImpactHaptic(settings: settingsManager) })
                     
                     Button("查询"){
                         fetchPlayerScore(leaderboardID: "classic_hdml_moves")
                     }
+                    .buttonStyle(menuButtonStyle)
         
                     Spacer()
 
                     authStatusFooter().padding(.bottom)
                 }
-               .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 关键：让 VStack 也充满整个空间，这样它的原点 (0,0) 就会和 ZStack 的原点对齐
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-           .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
-           .navigationDestination(isPresented: $navigateToLeaderboardView) { LeaderboardView() }
-           .onAppear {
+            .coordinateSpace(name: "MechanismBackground")
+            .environment(\.backgroundOffset, geometry.safeAreaInsets.top)
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
+            .navigationDestination(isPresented: $navigateToLeaderboardView) { LeaderboardView() }
+            .navigationDestination(isPresented: $showLevelSelection) { LevelSelectionView() }
+            .navigationDestination(isPresented: $showThemeSelection) { ThemeSelectionView() }
+            .navigationDestination(isPresented: $showSettings) { SettingsView() }
+            .onAppear {
                 if settingsManager.useiCloudLogin {
                     // authManager.refreshAuthenticationState()
                 }
-           }
+            }
         }
         .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
     }
-    
-    // ... 其余 MainMenuView 代码 (authStatusFooter, etc.) 保持不变 ...
-    // --- (篇幅原因，此处省略未改变的代码) ---
+
     @ViewBuilder
     private func authStatusFooter() -> some View {
         VStack {
@@ -156,6 +166,9 @@ struct MainMenuView: View {
         .frame(minHeight: 50)
     }
 }
+
+
+
 
 // MARK: 关卡选择视图
 struct LevelSelectionView: View {

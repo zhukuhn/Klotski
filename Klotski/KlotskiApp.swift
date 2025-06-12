@@ -63,6 +63,7 @@ struct KlotskiApp: App {
                .environmentObject(authManager)
                .environmentObject(themeManager)
                .environmentObject(gameManager)
+
                .environment(\.isGameCenterAuthenticated, $isGameCenterAuthenticated) // 注入状态供子视图使用
                .onAppear {
                    // 在主菜单出现时，执行依赖注入和Game Center认证

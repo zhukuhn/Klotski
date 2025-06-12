@@ -2,13 +2,21 @@
 //  ThemeFactory.swift
 //  Klotski
 //
-//  Created by Your Name on 2025/6/7.
-//
-//  This file centralizes all theme-specific rendering logic using the Strategy Pattern.
-//
+//  Created by zhu kun on 2025/6/7.
 
 import SwiftUI
+// --- 定义一个自定义的环境键，用于传递偏移量 ---
+private struct BackgroundOffsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
 
+extension EnvironmentValues {
+    var backgroundOffset: CGFloat {
+        get { self[BackgroundOffsetKey.self] }
+        set { self[BackgroundOffsetKey.self] = newValue }
+    }
+}
+// --- 环境键定义结束 ---
 
 struct Theme: Identifiable, Codable, Equatable {
     let id: String
@@ -47,11 +55,10 @@ struct Theme: Identifiable, Codable, Equatable {
             WoodcutThemeRenderer()
         case "memphisPop":
             MemphisPopThemeRenderer()
-        // --- 新增巧克力主题的 case ---
         case "chocolate":
             ChocolateThemeRenderer()
-        case "photoRealChocolate":
-            PhotoRealChocolateThemeRenderer()
+        case "mechanism":
+            MechanismThemeRenderer()
         default:
             DefaultThemeRenderer()
         }
@@ -130,15 +137,24 @@ struct AppThemeRepository {
               colorScheme: .light),
 
         
-        Theme(id: "photoRealChocolate", name: "真实巧克力", isPremium: false, productID: nil,
-                      backgroundColor: CodableColor(color: Color(hex: "#3D2B1F")), // 背景色作为图片加载失败时的后备
-                      sliderColor: CodableColor(color: Color(hex: "#8B5E3C")), // 用于按钮主体色
-                      sliderTextColor: CodableColor(color: .white), // 用于按钮图标
-                      boardBackgroundColor: CodableColor(color: Color(hex: "#5C4033")), // 棋盘背景色
-                      boardGridLineColor: CodableColor(color: .clear), // 棋盘不需要网格线
-                      sliderContent: .none, // 滑块内容由代码绘制，而非文字
-                      fontName: "Georgia-Bold", // 用于按钮字体
-                      colorScheme: .dark),
+        Theme(id: "chocolate", name: "浓情巧克力", isPremium: false, productID: nil,
+              backgroundColor: CodableColor(color: Color(hex: "#3D2B1F")), // 背景色作为图片加载失败时的后备
+              sliderColor: CodableColor(color: Color(hex: "#8B5E3C")), // 用于按钮主体色
+              sliderTextColor: CodableColor(color: .white), // 用于按钮图标
+              boardBackgroundColor: CodableColor(color: Color(hex: "#5C4033")), // 棋盘背景色
+              boardGridLineColor: CodableColor(color: .clear), // 棋盘不需要网格线
+              sliderContent: .none, // 滑块内容由代码绘制，而非文字
+              fontName: "Georgia-Bold", // 用于按钮字体
+              colorScheme: .dark),
+        
+        Theme(id: "mechanism", name: "层岩机关", isPremium: false, productID: nil,
+                backgroundColor: CodableColor(color: Color(red: 100/255, green: 60/255, blue: 40/255)),    // 后备背景色：深暖棕4A3F3C
+                sliderColor: CodableColor(color: Color(hex: "#7B6F6A")),        // 棋子颜色：暖棕褐色
+                sliderTextColor: CodableColor(color: Color(hex: "#D9D1CB")),    // 文字颜色：柔和米灰
+                boardBackgroundColor: CodableColor(color: Color(hex: "#5D534F")),// 棋盘颜色：岩石灰
+                boardGridLineColor: CodableColor(color: .clear),                // 不需要网格线
+                fontName: "AvenirNext-Bold",
+                colorScheme: .dark),
         
         Theme(id: "dark", name: "深邃夜空", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .black),
@@ -192,6 +208,31 @@ extension Color {
         }
         self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
     }
+
+    /// **FIX:** Helper function to adjust color brightness and return a new Color object.
+    func adjusted(by brightness: CGFloat) -> Color {
+        let uiColor = UIColor(self)
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var oldBrightness: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        // Try to get HSB components
+        if uiColor.getHue(&hue, saturation: &saturation, brightness: &oldBrightness, alpha: &alpha) {
+            let newBrightness = min(max(oldBrightness + brightness, 0.0), 1.0)
+            return Color(UIColor(hue: hue, saturation: saturation, brightness: newBrightness, alpha: alpha))
+        }
+        
+        // Fallback for grayscale colors
+        var white: CGFloat = 0
+        if uiColor.getWhite(&white, alpha: &alpha) {
+            let newWhite = min(max(white + brightness, 0.0), 1.0)
+            return Color(UIColor(white: newWhite, alpha: alpha))
+        }
+        
+        // Return original color if conversion fails
+        return self
+    }
 }
 
 // MARK: - THEME RENDERERS (FACTORIES)
@@ -210,6 +251,177 @@ protocol ThemeableViewFactory {
 }
 
 // MARK: - Standard & Existing Renderers
+
+struct MechanismThemeRenderer: ThemeableViewFactory {
+    private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "mechanism" }!
+
+    func gameBackground() -> any View {
+        ZStack {
+            // 后备的纯色背景，以防图片加载失败
+            theme.backgroundColor.color.ignoresSafeArea()
+
+            // 移除所有不必要的颜色遮罩，保持图片原始色彩
+            Image("mechanism_background")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .clipped()
+                .ignoresSafeArea()
+        }
+    }
+    
+    func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        return shape
+            .fill(theme.boardBackgroundColor.color.opacity(0.8))
+            .overlay(
+                shape
+                    .stroke(Color.white.opacity(0.1), lineWidth: 8)
+                    .blur(radius: 6)
+                    .offset(x: 4, y: 4)
+                    .mask(shape)
+            )
+            .overlay(
+                shape
+                    .stroke(Color.black.opacity(0.4), lineWidth: 8)
+                    .blur(radius: 6)
+                    .offset(x: -4, y: -4)
+                    .mask(shape)
+            )
+    }
+
+    // --- 棋子视图修改 (已修复错误) ---
+    func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
+        let shape = RoundedRectangle(cornerRadius: cellSize * 0.15, style: .continuous)
+        
+        return ZStack {
+            // 棋子的基础形状和阴影，提供立体感
+            shape
+                .fill(theme.sliderColor.color) // 图片加载失败时的后备颜色
+                .shadow(color: Color.white.opacity(0.15), radius: isDragging ? 6 : 4, x: isDragging ? -4 : -2, y: isDragging ? -4 : -2)
+                .shadow(color: Color.black.opacity(0.4), radius: isDragging ? 6 : 4, x: isDragging ? 4 : 2, y: isDragging ? 4 : 2)
+
+            // --- 错误修复 ---
+            // 直接在视图构建器 (@ViewBuilder) 中使用 switch 语句创建 Image 视图。
+            // 这样避免了在 @ViewBuilder 中声明局部变量，从而解决了 'buildExpression' 错误。
+            switch (piece.width, piece.height) {
+            case (2, 2):
+                // 请将 "mechanism_piece_2x2" 替换为你的 2x2 棋子图片名称
+                Image("mechanism_piece_2x2")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            case (2, 1):
+                // 请将 "mechanism_piece_2x1" 替换为你的 2x1 棋子图片名称
+                Image("mechanism_piece_2x1")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            case (1, 2):
+                // 请将 "mechanism_piece_1x2" 替换为你的 1x2 棋子图片名称
+                Image("mechanism_piece_1x2")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            default: // 1x1
+                // 请将 "mechanism_piece_1x1" 替换为你的 1x1 棋子图片名称
+                Image("mechanism_piece_1x1")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            }
+        }
+        .clipShape(shape) // 保证图片被裁剪为棋子形状
+        .scaleEffect(isDragging ? 1.05 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isDragging)
+    }
+
+
+    func menuButtonStyle() -> AnyButtonStyle {
+        AnyButtonStyle(MechanismButtonStyle(theme: theme))
+    }
+}
+
+struct MechanismButtonStyle: ButtonStyle {
+    let theme: Theme
+    
+    func makeBody(configuration: Configuration) -> some View {
+        StyleHelper(theme: theme, configuration: configuration)
+    }
+
+    private struct StyleHelper: View {
+        let theme: Theme
+        let configuration: Configuration
+        @State private var isActive = true
+        
+        @Environment(\.backgroundOffset) private var backgroundOffset: CGFloat
+
+        var body: some View {
+            let isPressed = configuration.isPressed && isActive
+            
+            // --- 修改部分：实现雕刻文字效果 ---
+            ZStack {
+                // 内阴影 (模拟雕刻的暗边，在左上方)
+                configuration.label
+                    .offset(x: -1, y: -1)
+                    .foregroundColor(Color.black.opacity(0.4))
+
+                // 内高光 (模拟雕刻的亮边，在右下方)
+                configuration.label
+                    .offset(x: 1, y: 1)
+                    .foregroundColor(Color.white.opacity(0.15))
+                
+                // 主文字层
+                configuration.label
+                    .foregroundColor(theme.sliderTextColor.color)
+            }
+            .font(.custom(theme.fontName ?? "AvenirNext-Bold", size: 20))
+            .padding()
+            .frame(maxWidth: 280, minHeight: 50)
+            .background(
+                GeometryReader { geo in
+                    let frame = geo.frame(in: .named("MechanismBackground"))
+                    
+                    if frame.origin.x.isFinite && frame.origin.y.isFinite {
+                        Image("mechanism_background")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .offset(
+                                x: -frame.minX,
+                                y: -frame.minY - backgroundOffset
+                            )
+                            .frame(width: UIScreen.main.bounds.width, 
+                                   height: UIScreen.main.bounds.height)
+                            .scaleEffect(isPressed ? 0.98 : 1.0)
+                    } else {
+                        theme.sliderColor.color
+                    }
+                }
+            )
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+            .overlay(
+                Group {
+                    if isPressed {
+                        Capsule()
+                            .stroke(Color.black, lineWidth: 6)
+                            .blur(radius: 3)
+                            .offset(x: 2, y: 2)
+                            .mask(Capsule())
+                    }
+                }
+            )
+            .offset(y: isPressed ? 5 : 0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.55), value: isPressed)
+            .onAppear { isActive = true }
+            .onDisappear { isActive = false }
+        }
+    }
+}
+
+
+
+
+
+
+
+
 struct DefaultThemeRenderer: ThemeableViewFactory {
     private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "default" }!
     func gameBackground() -> any View { theme.backgroundColor.color.ignoresSafeArea() }
@@ -371,130 +583,9 @@ struct MemphisPopThemeRenderer: ThemeableViewFactory {
     private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat { max(16, cellSize * 0.5) }
 }
 
-// --- 最终质感优化版：巧克力主题的渲染器 ---
+// 浓情巧克力
 struct ChocolateThemeRenderer: ThemeableViewFactory {
     private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "chocolate" }!
-    
-    func gameBackground() -> any View {
-        ZStack {
-            // 深色巧克力底色
-            theme.backgroundColor.color.ignoresSafeArea()
-            
-            // 使用 Canvas 绘制可可粉般的纹理
-            Canvas { context, size in
-                context.addFilter(.alphaThreshold(min: 0.5, color: .white))
-                context.addFilter(.blur(radius: 2))
-                
-                context.drawLayer { g in
-                    for _ in 1...2000 {
-                        let rect = CGRect(x: .random(in: 0...size.width),
-                                          y: .random(in: 0...size.height),
-                                          width: .random(in: 1...3),
-                                          height: .random(in: 1...3))
-                        g.fill(Path(ellipseIn: rect), with: .color(Color(hex: "#2A1D15").opacity(.random(in: 0.2...0.5))))
-                    }
-                }
-            }
-            .blendMode(.overlay)
-            .ignoresSafeArea()
-            
-            // --- 增强的融化滴落效果 ---
-            GeometryReader { geo in
-                let dripColor = Color(hex: "#8B4513") // 使用更亮的焦糖棕色
-                let highlightColor = Color(hex: "#B96D40") // 更亮的高光色
-
-                let dripPath = Path { path in
-                    let width = geo.size.width
-                    let height = geo.size.height
-                    // 调整了滴落的长度和形状，使其更明显
-                    path.move(to: CGPoint(x: 0, y: 0))
-                    path.addLine(to: CGPoint(x: width * 0.1, y: 0))
-                    path.addQuadCurve(to: CGPoint(x: width * 0.18, y: height * 0.25), control: CGPoint(x: width * 0.15, y: height * 0.1))
-                    path.addQuadCurve(to: CGPoint(x: width * 0.25, y: 0), control: CGPoint(x: width * 0.22, y: height * 0.1))
-
-                    path.addLine(to: CGPoint(x: width * 0.5, y: 0))
-                    path.addQuadCurve(to: CGPoint(x: width * 0.55, y: height * 0.35), control: CGPoint(x: width * 0.52, y: height * 0.15))
-                    path.addQuadCurve(to: CGPoint(x: width * 0.6, y: 0), control: CGPoint(x: width * 0.58, y: height * 0.15))
-
-                    path.addLine(to: CGPoint(x: width * 0.8, y: 0))
-                    path.addQuadCurve(to: CGPoint(x: width * 0.85, y: height * 0.2), control: CGPoint(x: width * 0.82, y: height * 0.08))
-                    path.addQuadCurve(to: CGPoint(x: width * 0.9, y: 0), control: CGPoint(x: width * 0.88, y: height * 0.08))
-                    path.addLine(to: CGPoint(x: width, y: 0))
-                }
-
-                // 绘制滴落主体，提高不透明度
-                dripPath
-                    .fill(LinearGradient(gradient: Gradient(colors: [dripColor, dripColor.opacity(0.8)]), startPoint: .top, endPoint: .bottom))
-                    .opacity(0.85)
-
-                // 为滴落效果增加描边高光，使其更突出
-                dripPath
-                    .stroke(highlightColor, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    .blur(radius: 3)
-                    .opacity(0.6)
-            }
-            .ignoresSafeArea()
-        }
-    }
-    
-    func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.black.opacity(0.4))
-                .blur(radius: 10)
-                .offset(x: 0, y: 10)
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(LinearGradient(gradient: Gradient(colors: [theme.boardBackgroundColor.color, theme.boardBackgroundColor.color.opacity(0.8)]), startPoint: .top, endPoint: .bottom))
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.black.opacity(0.2), lineWidth: 8)
-                .blur(radius: 5)
-        }
-    }
-    
-    func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
-        let pieceShape = RoundedRectangle(cornerRadius: cellSize * 0.2, style: .continuous)
-        let pieceSize = CGSize(width: CGFloat(piece.width) * cellSize, height: CGFloat(piece.height) * cellSize)
-        
-        ZStack {
-            pieceShape
-                .fill(Color.black.opacity(0.6))
-                .shadow(color: .black.opacity(isDragging ? 0.6 : 0.4), radius: isDragging ? 15 : 8, y: isDragging ? 10 : 5)
-
-            pieceShape
-                .fill(LinearGradient(gradient: Gradient(colors: [Color(hex: "#A0522D"), theme.sliderColor.color]), startPoint: .top, endPoint: .bottom))
-                .padding(2)
-
-            // 使用更柔和、更真实的径向渐变高光
-            pieceShape
-                .fill(
-                    RadialGradient(
-                        gradient: Gradient(colors: [Color.white.opacity(0.25), .clear]),
-                        center: .topLeading,
-                        startRadius: 1,
-                        endRadius: pieceSize.width * 1.2
-                    )
-                )
-                .blendMode(.overlay)
-                .clipped() // 确保高光不会溢出棋子形状
-
-            Text(piece.type.displayName)
-                .font(.custom(theme.fontName!, size: calculateFontSize(for: piece, cellSize: cellSize)))
-                .foregroundColor(theme.sliderTextColor.color)
-                .shadow(color: Color.black.opacity(0.4), radius: 1, x: -1, y: -1)
-                .shadow(color: Color(hex: "#D2691E").opacity(0.5), radius: 1, x: 1, y: 1)
-        }
-        .scaleEffect(isDragging ? 1.08 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isDragging)
-    }
-    
-    func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
-    
-    private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat { max(14, cellSize * 0.45) }
-}
-
-// 真实巧克力
-struct PhotoRealChocolateThemeRenderer: ThemeableViewFactory {
-    private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "photoRealChocolate" }!
 
     func gameBackground() -> any View {
         Image("chocolate_background")
@@ -567,20 +658,8 @@ private struct ChocolatePieceView: View {
                 )
                 .clipped()
             
-            // 表面高光
-//            shape.fill(
-//                RadialGradient(
-//                    gradient: Gradient(colors: [config.highlightColor, .clear]),
-//                    center: .topLeading,
-//                    startRadius: 1,
-//                    endRadius: 100
-//                )
-//            )
+
         }
-        // 外阴影 - 营造悬浮感
-//        .shadow(color: config.dropShadowColor.opacity(isDragging ? 0.6 : 0.45),
-//                radius: isDragging ? 12 : 8,
-//                y: isDragging ? 10 : 7)
     }
 }
 
@@ -622,7 +701,7 @@ struct ChocolateButtonStyle: ButtonStyle {
             .font(.custom(theme.fontName ?? "Georgia-Bold", size: 20))
             .fontWeight(.bold)
             .padding(.vertical, 12)
-            .frame(maxWidth: 220)
+            .frame(maxWidth: 280)
             .foregroundColor(Color(hex: "#F5EDE3")) // 象牙白文字
             .background(
                 // 使用与牛奶巧克力类似的渐变
