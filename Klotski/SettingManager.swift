@@ -28,7 +28,7 @@ class SettingsManager: ObservableObject {
             "loggedInAs": "Logged in as:", "email": "Email", "password": "Password",
             "displayName": "Display Name", "forgotPassword": "Forgot Password?",
             "signInWithApple": "Sign in with Apple", "cancel": "Cancel", "level": "Level",
-            "moves": "Moves", "time": "Time", "noLevels": "No levels available.",
+            "moves": "Moves","bestMoves":"Best", "time": "Time","bestTime": "Best", "noLevels": "No levels available.",
             "themeStore": "Theme Store", "applyTheme": "Apply", "purchase": "Purchase",
             "restorePurchases": "Restore Purchases", "language": "Language",
             "chinese": "简体中文 (Chinese)", "english": "English",
@@ -82,7 +82,8 @@ class SettingsManager: ObservableObject {
             "storeKitErrorPurchasePending": "Purchase is pending.",
             "storeKitErrorTransactionVerificationFailed": "Transaction verification failed.",
             "storeKitErrorFailedToLoadEntitlements": "Failed to load current purchases",
-            "storeKitErrorUserCannotMakePayments": "This account cannot make payments."
+            "storeKitErrorUserCannotMakePayments": "This account cannot make payments.",
+            "tryTheme": "Try",
         ],
         "zh": [
             "gameTitle": "华容道", "startGame": "开始游戏", "continueGame": "继续游戏",
@@ -91,7 +92,7 @@ class SettingsManager: ObservableObject {
             "loggedInAs": "已登录:", "email": "邮箱", "password": "密码",
             "displayName": "昵称", "forgotPassword": "忘记密码?",
             "signInWithApple": "通过Apple登录", "cancel": "取消", "level": "关卡",
-            "moves": "步数", "time": "时间", "noLevels": "暂无可用关卡。",
+            "moves": "步数", "bestMoves":"最佳", "time": "时间","bestTime": "最佳", "noLevels": "暂无可用关卡。",
             "themeStore": "主题商店", "applyTheme": "应用", "purchase": "购买",
             "restorePurchases": "恢复购买", "language": "语言",
             "chinese": "简体中文", "english": "English (英文)",
@@ -145,7 +146,8 @@ class SettingsManager: ObservableObject {
             "storeKitErrorPurchasePending": "购买待处理。",
             "storeKitErrorTransactionVerificationFailed": "交易验证失败。",
             "storeKitErrorFailedToLoadEntitlements": "加载当前购买项目失败",
-            "storeKitErrorUserCannotMakePayments": "此账户无法进行支付。"
+            "storeKitErrorUserCannotMakePayments": "此账户无法进行支付。",
+            "tryTheme": "试用",
         ]
     ]
 

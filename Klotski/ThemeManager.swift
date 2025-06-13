@@ -23,6 +23,11 @@ class ThemeManager: ObservableObject {
     @Published var storeKitError: StoreKitError? = nil
     @Published var isStoreLoading: Bool = false
 
+    // --- 新增：试用功能相关属性 ---
+    @Published private(set) var isTrialActive: Bool = false
+    @Published var showTrialEndedAlert: Bool = false
+    private(set) var trialThemeForPurchase: Theme? = nil
+
     private var cancellables = Set<AnyCancellable>()
     private let storeKitManager = StoreKitManager.shared
     
@@ -31,20 +36,44 @@ class ThemeManager: ObservableObject {
     private let currentThemeIDKey = "currentThemeID"
     static let locallyKnownPaidThemeIDsKey = "locallyKnownPaidThemeIDs"
 
+    // --- 新增：试用功能私有属性 ---
+    private var previousThemeID: String?
+    private var trialTimer: Timer?
+
 
     init(authManager: AuthManager, settingsManager: SettingsManager, availableThemes: [Theme] = AppThemeRepository.allThemes) {
         self.settingsManagerInstance = settingsManager
         self.themes = availableThemes
         
-        let fallbackTheme = Theme(id: "fallback", name: "备用", isPremium: false, backgroundColor: CodableColor(color: .gray), sliderColor: CodableColor(color: .secondary), sliderTextColor: CodableColor(color: .black), boardBackgroundColor: CodableColor(color: .white), boardGridLineColor: CodableColor(color: Color(.systemGray)))
+        let fallbackTheme = Theme(id: "fallback", name: "备用", isPremium: false,
+                                  backgroundColor: CodableColor(color: .gray),
+                                  sliderColor: CodableColor(color: .secondary),
+                                  sliderTextColor: CodableColor(color: .white),
+                                  textColor: CodableColor(color: .primary),
+                                  boardBackgroundColor: CodableColor(color: .white),
+                                  boardGridLineColor: CodableColor(color: Color(.systemGray)))
+        
         let defaultThemeToSet = availableThemes.first(where: { $0.id == "default" }) ?? fallbackTheme
         
         let initialPurchased = Set(availableThemes.filter { !$0.isPremium }.map { $0.id })
         self._purchasedThemeIDs = Published(initialValue: initialPurchased)
         self._currentTheme = Published(initialValue: defaultThemeToSet)
 
-        print("ThemeManager init: Initial purchasedThemeIDs (only two themes): \(self.purchasedThemeIDs)")
+        print("ThemeManager init: Initial purchasedThemeIDs (only free themes): \(self.purchasedThemeIDs)")
         
+        setupBindings(authManager: authManager)
+
+        Task {
+            if settingsManagerInstance.useiCloudLogin {
+                await fetchSKProducts()
+                await storeKitManager.checkForCurrentEntitlements()
+            }
+        }
+        print("ThemeManager init: Fully initialized. Current theme: \(self.currentTheme.name)")
+    }
+    
+    private func setupBindings(authManager: AuthManager) {
+        // ... 原有的 bindings 保持不变 ...
         storeKitManager.purchaseOrRestoreSuccessfulPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] processedProductIDs in
@@ -54,26 +83,14 @@ class ThemeManager: ObservableObject {
             }
             .store(in: &cancellables)
         
-        storeKitManager.$fetchedProducts
-            .receive(on: DispatchQueue.main)
-            .assign(to: \.storeKitProducts, on: self)
-            .store(in: &cancellables)
-
-        storeKitManager.$isLoading
-            .receive(on: DispatchQueue.main)
-            .assign(to: \.isStoreLoading, on: self)
-            .store(in: &cancellables)
-
-        storeKitManager.$error
-            .receive(on: DispatchQueue.main)
-            .assign(to: \.storeKitError, on: self)
-            .store(in: &cancellables)
+        storeKitManager.$fetchedProducts.receive(on: DispatchQueue.main).assign(to: \.storeKitProducts, on: self).store(in: &cancellables)
+        storeKitManager.$isLoading.receive(on: DispatchQueue.main).assign(to: \.isStoreLoading, on: self).store(in: &cancellables)
+        storeKitManager.$error.receive(on: DispatchQueue.main).assign(to: \.storeKitError, on: self).store(in: &cancellables)
         
         authManager.$currentUser
             .receive(on: DispatchQueue.main)
             .sink { [weak self] userProfile in
                 guard let self = self else { return }
-                print("ThemeManager: AuthManager.currentUser changed. New profile ID: \(userProfile?.id ?? "nil")")
                 self.initialAuthCheckCompleted = true
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
                 Task {
@@ -90,7 +107,6 @@ class ThemeManager: ObservableObject {
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 let iCloudSettingChanged = self.settingsManagerInstance.useiCloudLogin
-                print("ThemeManager: SettingsManager's useiCloudLogin might have changed to \(iCloudSettingChanged).")
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
                 Task {
                      if iCloudSettingChanged {
@@ -102,14 +118,115 @@ class ThemeManager: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+    /// 开始一个主题的试用
+    /// - Parameters:
+    ///   - theme: 要试用的主题
+    ///   - duration: 试用时长（秒）
+    func startTrial(for theme: Theme, duration: TimeInterval = 10) {
+        guard !isTrialActive else {
+            print("ThemeManager: Cannot start a new trial while another is active.")
+            return
+        }
 
-        Task {
-            if settingsManagerInstance.useiCloudLogin {
-                await fetchSKProducts()
-                await storeKitManager.checkForCurrentEntitlements()
+        print("ThemeManager: Starting trial for theme '\(theme.name)' for \(duration) seconds.")
+        
+        // 取消任何可能存在的旧计时器
+        trialTimer?.invalidate()
+        
+        // 保存当前主题，以便试用结束后恢复
+        previousThemeID = self.currentTheme.id
+        isTrialActive = true
+        
+        // 立即应用试用主题
+        // 注意：这里我们绕过了 setCurrentTheme 中的购买检查
+        currentTheme = theme
+        
+        // 启动计时器，在试用结束后调用 endTrial
+        trialTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.endTrial()
             }
         }
-        print("ThemeManager init: Fully initialized. Current theme: \(self.currentTheme.name)")
+    }
+    
+    /// 结束试用
+    private func endTrial() {
+        guard isTrialActive else { return }
+
+        print("ThemeManager: Trial ended.")
+        
+        trialTimer?.invalidate()
+        trialTimer = nil
+        
+        // 保存试用过的主题信息，以便在弹窗中提供购买选项
+        self.trialThemeForPurchase = self.currentTheme
+        
+        // 恢复到之前的主题
+        if let prevID = previousThemeID, let prevTheme = themes.first(where: { $0.id == prevID }) {
+            currentTheme = prevTheme
+        } else {
+            // 如果找不到之前的主题，则恢复到默认主题
+            currentTheme = themes.first { $0.id == "default" } ?? themes.first!
+        }
+        
+        isTrialActive = false
+        previousThemeID = nil
+        
+        // 触发UI显示“试用结束”的弹窗
+        showTrialEndedAlert = true
+    }
+    
+    /// 由用户操作（如切换到已购买主题）取消试用
+    func cancelTrial() {
+        guard isTrialActive else { return }
+        
+        print("ThemeManager: Trial cancelled by user action.")
+        
+        trialTimer?.invalidate()
+        trialTimer = nil
+        
+        // 直接恢复主题，不显示弹窗
+        if let prevID = previousThemeID, let prevTheme = themes.first(where: { $0.id == prevID }) {
+            currentTheme = prevTheme
+        } else {
+            currentTheme = themes.first { $0.id == "default" } ?? themes.first!
+        }
+        
+        isTrialActive = false
+        previousThemeID = nil
+        trialThemeForPurchase = nil
+    }
+
+    // MARK: - Public Methods
+    
+    func setCurrentTheme(_ theme: Theme) {
+        // 如果用户在试用期间选择了一个已购买的主题，则取消试用
+        if isTrialActive {
+            cancelTrial()
+        }
+        
+        // --- 原有的逻辑保持不变 ---
+        guard themes.contains(where: { $0.id == theme.id }) else {
+            print("ThemeManager: Attempted to set an unknown theme ('\(theme.name)'). Ignoring.")
+            return
+        }
+
+        guard isThemePurchased(theme) else {
+            print("ThemeManager setCurrentTheme: Cannot apply theme '\(theme.name)'. It's premium and not purchased.")
+            // 不应该会发生，因为UI层会阻止
+            return
+        }
+
+        if currentTheme.id != theme.id {
+            currentTheme = theme
+            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey)
+            print("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
+        }
+    }
+
+    func isThemePurchased(_ theme: Theme) -> Bool {
+        return !theme.isPremium || purchasedThemeIDs.contains(theme.id)
     }
     
     func fetchSKProducts() async {
@@ -200,84 +317,30 @@ class ThemeManager: ObservableObject {
     }
 
     private func rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: AuthManager) {
-        var newPurchased = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
-
-        if self.settingsManagerInstance.useiCloudLogin, let userProfile = authManager.currentUser {
-            newPurchased.formUnion(userProfile.purchasedThemeIDs)
-            print("ThemeManager rebuild (iCloud user \(userProfile.id)): Loaded \(userProfile.purchasedThemeIDs.count) themes from CloudKit profile. Combined with free: \(newPurchased.count)")
-        } else {
-            print("ThemeManager rebuild (No iCloud user or iCloud disabled): No purchased themes from iCloud.")
+        // 在重建之前，如果试用正在进行，则取消试用以避免状态冲突
+        if isTrialActive {
+            cancelTrial()
         }
         
-        if self.purchasedThemeIDs != newPurchased {
-            self.purchasedThemeIDs = newPurchased
-            print("ThemeManager: purchasedThemeIDs confirms. Free and purchased themes from StoreKit. Final set: \(self.purchasedThemeIDs)")
-        }else{
-            print("ThemeManager: purchasedThemeIDs confirms. Only Free themes can apply. Final set: \(self.purchasedThemeIDs)")
+        // --- 原有的逻辑保持不变 ---
+        var newPurchased = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
+        if self.settingsManagerInstance.useiCloudLogin, let userProfile = authManager.currentUser {
+            newPurchased.formUnion(userProfile.purchasedThemeIDs)
         }
+        self.purchasedThemeIDs = newPurchased
 
         let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
         var themeToRestore: Theme? = nil
-
         if let themeID = savedThemeID, let candidate = themes.first(where: { $0.id == themeID }) {
             if self.isThemePurchased(candidate) {
                 themeToRestore = candidate
             }
         }
-
-        let themeToActuallySet: Theme
-        if let validRestoredTheme = themeToRestore {
-            themeToActuallySet = validRestoredTheme
-        } else {
-            let defaultThemeToSet = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
-            themeToActuallySet = defaultThemeToSet
-            if savedThemeID != nil && savedThemeID != defaultThemeToSet.id {
-                 print("ThemeManager rebuild: Previously selected theme '\(savedThemeID!)' is no longer purchased or invalid. Reverting to default '\(defaultThemeToSet.name)'.")
-            }
-        }
+        let themeToActuallySet = themeToRestore ?? (self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!)
         
         if currentTheme.id != themeToActuallySet.id {
              setCurrentTheme(themeToActuallySet)
-        } else if !isThemePurchased(currentTheme) {
-             let defaultTheme = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
-             print("ThemeManager rebuild: Current theme '\(currentTheme.name)' is no longer purchased. Reverting to default '\(defaultTheme.name)'.")
-             setCurrentTheme(defaultTheme)
         }
-    }
-    
-    func setCurrentTheme(_ theme: Theme) {
-        guard themes.contains(where: { $0.id == theme.id }) else {
-            print("ThemeManager: Attempted to set an unknown theme ('\(theme.name)'). Ignoring.")
-            return
-        }
-
-        let canApply: Bool
-        if theme.isPremium {
-            canApply = self.isThemePurchased(theme)
-        } else {
-            canApply = true
-        }
-
-        guard canApply else {
-            print("ThemeManager setCurrentTheme: Cannot apply theme '\(theme.name)'. It's premium and not purchased/accessible.")
-            let defaultThemeToSet = self.themes.first(where: { $0.id == "default" }) ?? self.themes.first!
-            if self.currentTheme.id != defaultThemeToSet.id {
-                self.currentTheme = defaultThemeToSet
-                UserDefaults.standard.set(defaultThemeToSet.id, forKey: currentThemeIDKey)
-                print("ThemeManager setCurrentTheme: Reverted to default theme '\(defaultThemeToSet.name)'.")
-            }
-            return
-        }
-
-        if currentTheme.id != theme.id {
-            currentTheme = theme
-            UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey)
-            print("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
-        }
-    }
-
-    func isThemePurchased(_ theme: Theme) -> Bool {
-        return !theme.isPremium || purchasedThemeIDs.contains(theme.id)
     }
 
 }

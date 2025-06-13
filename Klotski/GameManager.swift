@@ -147,13 +147,12 @@ class GameManager: ObservableObject {
         isPaused = false 
         isGameWon = false
         
-        stopTimer() 
-        startGame(level: newLevel, settings: settings, isNewSession: false) 
-        clearSavedGameForCurrentLevelOnly()
+        stopTimer()
+        startGame(level: newLevel, settings: settings, isNewSession: true) 
     }
 
     func pauseGame() {
-        guard isGameActive && !isGameWon else { return }
+        guard !isGameWon else { return }
         if !isPaused {
             isPaused = true
             stopTimer() // Stops the timer and records the current timeElapsed
@@ -278,7 +277,7 @@ class GameManager: ObservableObject {
             updateAndSyncBestScore(levelId: level.id, currentMoves: moves, currentTime: timeElapsed)
             submitScoreToLeaderboard(levelID: level.id, moves: moves, time: timeElapsed) // Submit precise time
             
-            clearSavedGameForCurrentLevelOnly()
+            clearSavedGame()
         }
     }
     
@@ -318,7 +317,7 @@ class GameManager: ObservableObject {
     }
     
     func saveGame(settings: SettingsManager) { 
-        guard let currentLevel = currentLevel, let currentIndex = currentLevelIndex, isGameActive && !isGameWon else {
+        guard let currentLevel = currentLevel, let currentIndex = currentLevelIndex, timeElapsed > 0, !isGameWon else {
             return
         }
         UserDefaults.standard.set(currentLevel.id, forKey: savedInProgressLevelIDKey)
@@ -348,9 +347,6 @@ class GameManager: ObservableObject {
         print("已清除本地保存的游戏进行中状态")
     }
 
-    private func clearSavedGameForCurrentLevelOnly() {
-        clearSavedGame()
-    }
 
     func rebuildGameBoard() {
         guard let level = currentLevel else { return }

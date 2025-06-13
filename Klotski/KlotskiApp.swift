@@ -26,6 +26,7 @@ struct KlotskiApp: App {
 
     // MARK: - Initialization
     init() {
+
         // 按照依赖顺序初始化 Managers
         print(String(repeating:"-", count:100))
         let sm = SettingsManager()

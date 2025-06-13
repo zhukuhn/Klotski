@@ -10,8 +10,8 @@ import GameKit
 
 // MARK: - MainMenuView
 
+// MARK: - MainMenuView
 struct MainMenuView: View {
-    // MARK: Environment Objects
     @EnvironmentObject var gameManager: GameManager
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var settingsManager: SettingsManager
@@ -22,85 +22,78 @@ struct MainMenuView: View {
     @State private var showSettings = false
     @State private var navigateToLeaderboardView = false
     
-    // 获取当前主题的按钮样式
+    // --- 新增：用于显示“试用结束”弹窗的状态 ---
+    @State private var trialEndedAlertIsPresented = false
+    
     private var menuButtonStyle: AnyButtonStyle {
         themeManager.currentTheme.viewFactory.menuButtonStyle()
     }
 
-    // MARK: Body
-
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-            ZStack() {
-                AnyView(themeManager.currentTheme.viewFactory.gameBackground())
-                //.ignoresSafeArea()
-                
-                // 2. UI 内容层
-                VStack(spacing: 20) {
-                    Text(settingsManager.localizedString(forKey: "gameTitle"))
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .padding(.top, 40)
-                    .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                ZStack() {
+                    AnyView(themeManager.currentTheme.viewFactory.gameBackground())
                     
-                    Spacer()
+                    VStack(spacing: 20) {
+                        Text(settingsManager.localizedString(forKey: "gameTitle"))
+                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .padding(.top, 40)
+                            .foregroundColor(themeManager.currentTheme.textColor.color)
+                        
+                        Spacer()
 
-                    Button(settingsManager.localizedString(forKey: "startGame")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        if let firstLevel = gameManager.levels.first {
-                            gameManager.clearSavedGame()
-                            gameManager.startGame(level: firstLevel, settings: settingsManager, isNewSession: true)
-                        }
-                    }
-                    .buttonStyle(menuButtonStyle)
-
-                    if gameManager.hasSavedGame {
-                        Button(settingsManager.localizedString(forKey: "continueGame")) {
+                        // --- Main menu buttons ---
+                        Button(settingsManager.localizedString(forKey: "startGame")) {
                             SoundManager.playImpactHaptic(settings: settingsManager)
-                            gameManager.continueGame(settings: settingsManager)
+                            if let firstLevel = gameManager.levels.first {
+                                //gameManager.clearSavedGame()
+                                gameManager.startGame(level: firstLevel, settings: settingsManager, isNewSession: true)
+                            }
                         }
                         .buttonStyle(menuButtonStyle)
-                    }
-                    
-                    Button(settingsManager.localizedString(forKey: "selectLevel")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        self.showLevelSelection = true
-                    }
-                    .buttonStyle(menuButtonStyle)
 
-                    Button(settingsManager.localizedString(forKey: "themes")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        self.showThemeSelection = true
-                    }
-                    .buttonStyle(menuButtonStyle)
+                        if gameManager.hasSavedGame {
+                            Button(settingsManager.localizedString(forKey: "continueGame")) {
+                                SoundManager.playImpactHaptic(settings: settingsManager)
+                                gameManager.continueGame(settings: settingsManager)
+                            }
+                            .buttonStyle(menuButtonStyle)
+                        }
+                        
+                        Button(settingsManager.localizedString(forKey: "selectLevel")) {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            self.showLevelSelection = true
+                        }
+                        .buttonStyle(menuButtonStyle)
 
-                    Button(settingsManager.localizedString(forKey: "leaderboard")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        Task { await gameManager.syncAllLocalBestScoresToGameCenter() }
-                        self.navigateToLeaderboardView = true
-                    }
-                    .buttonStyle(menuButtonStyle)
-                    
-                    Button(settingsManager.localizedString(forKey: "settings")) {
-                        SoundManager.playImpactHaptic(settings: settingsManager)
-                        self.showSettings = true
-                    }
-                    .buttonStyle(menuButtonStyle)
-                    
-                    Button("查询"){
-                        fetchPlayerScore(leaderboardID: "classic_hdml_moves")
-                    }
-                    .buttonStyle(menuButtonStyle)
+                        Button(settingsManager.localizedString(forKey: "themes")) {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            self.showThemeSelection = true
+                        }
+                        .buttonStyle(menuButtonStyle)
+
+                        Button(settingsManager.localizedString(forKey: "leaderboard")) {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            Task { await gameManager.syncAllLocalBestScoresToGameCenter() }
+                            self.navigateToLeaderboardView = true
+                        }
+                        .buttonStyle(menuButtonStyle)
+                        
+                        Button(settingsManager.localizedString(forKey: "settings")) {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            self.showSettings = true
+                        }
+                        .buttonStyle(menuButtonStyle)
         
-                    Spacer()
+                        Spacer()
 
-                    authStatusFooter().padding(.bottom)
+                        authStatusFooter().padding(.bottom)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                // 关键：让 VStack 也充满整个空间，这样它的原点 (0,0) 就会和 ZStack 的原点对齐
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .coordinateSpace(name: "MechanismBackground")
-            .environment(\.backgroundOffset, geometry.safeAreaInsets.top)
+                .coordinateSpace(name: "MechanismBackground")
+                .environment(\.backgroundOffset, geometry.safeAreaInsets.top)
             }
             .ignoresSafeArea(edges: .bottom)
             .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
@@ -113,12 +106,38 @@ struct MainMenuView: View {
                     // authManager.refreshAuthenticationState()
                 }
             }
+            // --- 新增：监听 trialEndedAlert 状态来触发弹窗 ---
+            .onChange(of: themeManager.showTrialEndedAlert) { _, newValue in
+                if newValue {
+                    self.trialEndedAlertIsPresented = true
+                }
+            }
+            // --- 新增：试用结束后的购买弹窗 ---
+            .alert(
+                settingsManager.localizedString(forKey: "trialEnded"),
+                isPresented: $trialEndedAlertIsPresented,
+                presenting: themeManager.trialThemeForPurchase
+            ) { theme in
+                Button(settingsManager.localizedString(forKey: "purchase")) {
+                    Task {
+                        await themeManager.purchaseTheme(theme)
+                    }
+                }
+                Button(settingsManager.localizedString(forKey: "cancel"), role: .cancel) {}
+            } message: { theme in
+                Text(String(format: settingsManager.localizedString(forKey: "trialEndedMessage"), theme.name))
+            }
         }
+        .id(themeManager.currentTheme.id)
+        .navigationBarTheme(themeManager.currentTheme)
+        .tint(themeManager.currentTheme.textColor.color)
         .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
+        
     }
 
     @ViewBuilder
     private func authStatusFooter() -> some View {
+        // ... 此处代码与之前版本相同，保持不变 ...
         VStack {
             if settingsManager.useiCloudLogin {
                 if authManager.isLoading {
@@ -126,11 +145,11 @@ struct MainMenuView: View {
                        .padding(.bottom, 5)
                     Text(settingsManager.localizedString(forKey: "iCloudCheckingStatus"))
                        .font(.caption)
-                       .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
+                       .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.7))
                 } else if authManager.isLoggedIn, let user = authManager.currentUser {
                     Text("\(settingsManager.localizedString(forKey: "loggedInAs")) \(user.displayName ?? settingsManager.localizedString(forKey: "iCloudUser"))")
                        .font(.caption)
-                       .foregroundColor(themeManager.currentTheme.sliderColor.color)
+                       .foregroundColor(themeManager.currentTheme.textColor.color)
                        .padding(.bottom, 5)
                 } else if authManager.iCloudAccountStatus == .noAccount {
                      Text(settingsManager.localizedString(forKey: "iCloudNoAccountDetailed"))
@@ -138,27 +157,17 @@ struct MainMenuView: View {
                        .foregroundColor(.orange)
                        .multilineTextAlignment(.center)
                        .padding(.horizontal)
-                } else if authManager.iCloudAccountStatus != .available && authManager.errorMessage != nil {
-                    Text(authManager.errorMessage ?? settingsManager.localizedString(forKey: "iCloudConnectionError"))
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                } else if authManager.iCloudAccountStatus == .available && !authManager.isLoggedIn && !authManager.isLoading {
+                } else {
                      Text(settingsManager.localizedString(forKey: "iCloudSyncError"))
                        .font(.caption)
                        .foregroundColor(.orange)
                        .multilineTextAlignment(.center)
                        .padding(.horizontal)
-                } else if !authManager.isLoggedIn && !authManager.isLoading {
-                    Text(settingsManager.localizedString(forKey: "iCloudLoginPrompt"))
-                       .font(.caption)
-                       .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
                 }
             } else {
                 Text(settingsManager.localizedString(forKey: "iCloudDisabledInSettings"))
                    .font(.caption)
-                   .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
+                   .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.7))
                    .multilineTextAlignment(.center)
                    .padding(.horizontal)
             }
@@ -196,25 +205,43 @@ struct LevelSelectionView: View {
             ForEach(gameManager.levels.filter { $0.isUnlocked }) { level in
                 Button(action: {
                     SoundManager.playImpactHaptic(settings: settingsManager)
-                    gameManager.clearSavedGame()
                     gameManager.startGame(level: level, settings: settingsManager, isNewSession: true)
                     dismissPanelAction?()
                     onLevelSelected?()
                 }) {
                     HStack {
-                        VStack(alignment: .leading) { Text(level.name).font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline).foregroundColor(themeManager.currentTheme.sliderColor.color); if let moves = level.bestMoves { Text("最佳: \(moves) \(settingsManager.localizedString(forKey: "moves"))").font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption).foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7)) } else { Text("未完成").font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption).foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5)) } }; Spacer(); Image(systemName: "chevron.right").foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.5))
-                    }.padding(.vertical, 8)
+                        VStack(alignment: .leading) {
+                            // --- 修改：使用新的 textColor ---
+                            Text(level.name)
+                                .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
+                                .foregroundColor(themeManager.currentTheme.textColor.color)
+                            if let moves = level.bestMoves {
+                                Text("最佳: \(moves) \(settingsManager.localizedString(forKey: "moves"))")
+                                    .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption)
+                                    .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.7))
+                            } else {
+                                Text("未完成")
+                                    .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 12) : .caption)
+                                    .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.5))
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.5))
+                    }
+                    .padding(.vertical, 8)
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color)
             }
             if gameManager.levels.filter({ $0.isUnlocked }).isEmpty {
                 Text(settingsManager.localizedString(forKey: "noLevels"))
-                   .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
+                   .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.7))
                    .listRowBackground(themeManager.currentTheme.backgroundColor.color)
             }
         }
        .navigationTitle(settingsManager.localizedString(forKey: "selectLevel"))
-       .navigationBarTitleDisplayMode(isPresentedAsPanel ? .inline : .automatic)
+       //.navigationBarTitleDisplayMode(isPresentedAsPanel ? .inline : .automatic)
+       .navigationBarTitleDisplayMode(.inline)
        .toolbar {
            if isPresentedAsPanel {
                ToolbarItem(placement: .navigationBarTrailing) {
@@ -222,7 +249,7 @@ struct LevelSelectionView: View {
                        SoundManager.playImpactHaptic(settings: settingsManager)
                        dismissPanelAction?()
                    }
-                   .tint(themeManager.currentTheme.sliderColor.color)
+                   .tint(themeManager.currentTheme.textColor.color)
                }
            }
        }
@@ -231,7 +258,7 @@ struct LevelSelectionView: View {
     }
 }
 
-// MARK: 主题选择视图
+// MARK: - 主题选择视图
 struct ThemeSelectionView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var settingsManager: SettingsManager
@@ -239,14 +266,12 @@ struct ThemeSelectionView: View {
 
     @State private var showStoreErrorAlert = false
     @State private var storeActionError: StoreKitError? = nil {
-        didSet {
-            if storeActionError != nil {
-                showStoreErrorAlert = true
-            }
-        }
+        didSet { if storeActionError != nil { showStoreErrorAlert = true } }
     }
     
-    // Helper to get SKProduct equivalent for a theme
+    // --- 新增：用于在开始试用前进行确认 ---
+    @State private var themeForTrialConfirmation: Theme?
+
     private func storeKitProduct(for theme: Theme) -> Product? {
         guard theme.isPremium, let productID = theme.productID else { return nil }
         return themeManager.storeKitProducts.first(where: { $0.id == productID })
@@ -256,7 +281,7 @@ struct ThemeSelectionView: View {
         List {
             Section(header: Text(settingsManager.localizedString(forKey: "themeStore"))
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
-                .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
+                .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.8))) {
                 
                 ForEach(themeManager.themes) { theme in
                     themeRow(for: theme)
@@ -265,94 +290,146 @@ struct ThemeSelectionView: View {
             }
             
             Section {
+                 // ... 恢复购买按钮逻辑保持不变 ...
                  Button(action: {
                     SoundManager.playImpactHaptic(settings: settingsManager)
                     guard settingsManager.useiCloudLogin && authManager.isLoggedIn else {
-                        print("Restore purchases requires iCloud login and user to be logged in.")
-                        self.storeActionError = .userCannotMakePayments // 或更合适的错误
+                        self.storeActionError = .userCannotMakePayments
                         return
                     }
-                    Task {
-                        await themeManager.restoreThemePurchases()
-                        // 错误会通过 themeManager.storeKitError 更新，并触发 alert
-                    }
+                    Task { await themeManager.restoreThemePurchases() }
                 }) {
                     HStack {
                         Text(settingsManager.localizedString(forKey: "restorePurchases"))
                         Spacer()
-                        if themeManager.isStoreLoading && storeKitProduct(for: themeManager.currentTheme) == nil { // 粗略判断是否是全局恢复
+                        if themeManager.isStoreLoading && storeKitProduct(for: themeManager.currentTheme) == nil {
                             ProgressView()
                         }
                      }
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color)
-               .foregroundColor(settingsManager.useiCloudLogin && authManager.isLoggedIn ? themeManager.currentTheme.sliderColor.color : .gray)
+               .foregroundColor(settingsManager.useiCloudLogin && authManager.isLoggedIn ? themeManager.currentTheme.textColor.color : .gray)
                .disabled(!settingsManager.useiCloudLogin || !authManager.isLoggedIn || themeManager.isStoreLoading)
             }
         }
-       .navigationTitle(settingsManager.localizedString(forKey: "themes"))
-       .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
-       .scrollContentBackground(.hidden)
-       .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
-       .onAppear {
-           print("ThemeSelectionView onAppear: useiCloudLogin = \(settingsManager.useiCloudLogin)")
-           if settingsManager.useiCloudLogin && authManager.isLoggedIn { // && themeManager.storeKitProducts.isEmpty { // 每次出现都获取一下，确保最新
+        .navigationTitle(settingsManager.localizedString(forKey: "themes"))
+        .navigationBarTitleDisplayMode(.inline)
+        .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
+        .scrollContentBackground(.hidden)
+        .preferredColorScheme(themeManager.currentTheme.swiftUIScheme)
+        .onAppear {
+           if settingsManager.useiCloudLogin && authManager.isLoggedIn {
                Task {
                    await themeManager.fetchSKProducts()
-                   // 视图出现时也检查一下当前购买情况
                    await StoreKitManager.shared.checkForCurrentEntitlements()
                }
            }
-           themeManager.storeKitError = nil // 进入视图时清除旧错误
-       }
-       .onChange(of: themeManager.storeKitError) { oldValue, newValue in // 监听错误变化
-           if let newError = newValue {
-               self.storeActionError = newError
-           }
-       }
-       .alert(isPresented: $showStoreErrorAlert, error: storeActionError) { error in
-           // SwiftUI 会自动使用 error.localizedDescription
+           themeManager.storeKitError = nil
+        }
+        .onChange(of: themeManager.storeKitError) { _, newValue in
+           if let newError = newValue { self.storeActionError = newError }
+        }
+        .alert(isPresented: $showStoreErrorAlert, error: storeActionError) { _ in
            Button("OK") {
-               themeManager.storeKitError = nil // 清除错误，以便下次可以再次触发 alert
+               themeManager.storeKitError = nil
                storeActionError = nil
            }
-       } message: { error in
-           Text(error.errorDescription ?? "An unknown error occurred.") // 使用我们自定义的描述
-       }
+        } message: { error in
+           Text(error.errorDescription ?? "An unknown error occurred.")
+        }
+        // --- 新增：开始试用前的确认弹窗 ---
+        .alert(
+            settingsManager.localizedString(forKey: "startTrialTitle"),
+            isPresented: .constant(themeForTrialConfirmation != nil),
+            presenting: themeForTrialConfirmation
+        ) { theme in
+            Button(settingsManager.localizedString(forKey: "confirm")) {
+                themeManager.startTrial(for: theme)
+                themeForTrialConfirmation = nil // 关闭弹窗
+            }
+            Button(settingsManager.localizedString(forKey: "cancel"), role: .cancel) {
+                themeForTrialConfirmation = nil // 关闭弹窗
+            }
+        } message: { theme in
+            Text(String(format: settingsManager.localizedString(forKey: "startTrialMessage"), theme.name))
+        }
     }
 
     @ViewBuilder
     private func themeRow(for theme: Theme) -> some View {
-        VStack(alignment: .leading) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(theme.name)
-                       .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
-                    HStack { /* ... 颜色圆点 ... */ 
-                        Circle().fill(theme.backgroundColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
-                        Circle().fill(theme.sliderColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
-                        if let font = theme.fontName { Text(font).font(.caption2).italic() }
-                    }
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(theme.name)
+                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
+                HStack {
+                    Circle().fill(theme.backgroundColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
+                    Circle().fill(theme.sliderColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
+                    //if let font = theme.fontName { Text(font).font(.caption2).italic() }
                 }
-               .foregroundColor(themeManager.currentTheme.sliderColor.color)
+            }
+            .foregroundColor(themeManager.currentTheme.textColor.color)
 
-                Spacer()
+            Spacer()
 
-                if themeManager.currentTheme.id == theme.id {
-                    Image(systemName: "checkmark.circle.fill")
-                       .foregroundColor(.green)
-                       .font(.title2)
+            if themeManager.currentTheme.id == theme.id {
+                // 如果当前主题正在试用，显示一个计时器图标
+                if themeManager.isTrialActive {
+                    Image(systemName: "timer")
+                        .foregroundColor(.orange)
+                        .font(.title2)
+                        .transition(.scale)
                 } else {
-                    if themeManager.isThemePurchased(theme) {
-                        Button(settingsManager.localizedString(forKey: "applyTheme")) {
+                    
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.title2)
+                        .transition(.scale)
+                    
+                }
+            } else {
+                if themeManager.isThemePurchased(theme) {
+                    if theme.isPremium{
+                        Button(action: {
                             SoundManager.playImpactHaptic(settings: settingsManager)
                             themeManager.setCurrentTheme(theme)
+                        }) {
+                            HStack {
+                                Image(systemName: "sparkles")
+                                Text(settingsManager.localizedString(forKey: "applyTheme"))
+                            }
                         }
-                       .buttonStyle(.bordered)
-                       .tint(themeManager.currentTheme.sliderColor.color)
-                    } else if theme.isPremium {
-                        let product = storeKitProduct(for: theme)
-                        
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
+                    }else{
+                        Button(action: {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            themeManager.setCurrentTheme(theme)
+                        }) {
+                            HStack {
+                                Text(settingsManager.localizedString(forKey: "applyTheme"))
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(themeManager.currentTheme.textColor.color)
+                    }
+                                        
+                } else if theme.isPremium {
+                    let product = storeKitProduct(for: theme)
+                    HStack{
+                        Button(action: {
+                            SoundManager.playImpactHaptic(settings: settingsManager)
+                            self.themeForTrialConfirmation = theme
+                        }) {
+                            HStack {
+                                Image(systemName: "sparkles")
+                                Text(settingsManager.localizedString(forKey: "tryTheme"))
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
+                        // 如果正在试用其他主题，则禁用此按钮
+                        .disabled(themeManager.isTrialActive)
+
                         Button(action: {
                             SoundManager.playImpactHaptic(settings: settingsManager)
                             guard settingsManager.useiCloudLogin && authManager.isLoggedIn else {
@@ -375,20 +452,13 @@ struct ThemeSelectionView: View {
                        .tint(.pink)
                        .disabled(!settingsManager.useiCloudLogin || !authManager.isLoggedIn || themeManager.isStoreLoading || product == nil) // 如果 product 未加载也禁用
                     }
-                    // 免费且未应用的主题会落入 isThemePurchased -> applyTheme
-                }
-            }
-            
-            if theme.isPremium {
-                if !themeManager.isThemePurchased(theme) && (!settingsManager.useiCloudLogin || !authManager.isLoggedIn) {
-                    Text(settingsManager.localizedString(forKey: "purchaseRequiresiCloud"))
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                        .padding(.top, 2)
+                    
                 }
             }
         }
-       .padding(.vertical, 8)
+        .padding(.vertical, 8)
+        .animation(.spring(), value: themeManager.currentTheme.id)
+        .animation(.spring(), value: themeManager.isTrialActive)
     }
 }
 
@@ -475,24 +545,23 @@ struct LeaderboardView: View {
                 
                 Text("排行榜数据由 Game Center 提供。")
                     .font(.caption)
-                    .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.7))
+                    .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.7)) // Use textColor
                     .multilineTextAlignment(.center)
                     .padding(.bottom)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(settingsManager.localizedString(forKey: "leaderboard"))
+        .navigationBarTitleDisplayMode(.inline)
         .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
         .fullScreenCover(isPresented: $showingGameCenterSheet) {
-            // 使用我们优化后的 Representable
             if let leaderboardID = selectedLeaderboardIDForSheet {
-                // 将 themeManager 传递给 Representable，以便它可以访问主题颜色
                 GameCenterLeaderboardPresenterView(
                     leaderboardID: leaderboardID,
                     isPresented: $showingGameCenterSheet,
-                    themeManager: themeManager // 传递 themeManager
+                    themeManager: themeManager
                 )
-                .ignoresSafeArea() // 确保 Game Center UI 充满整个 sheet
+                .ignoresSafeArea()
             }
         }
         .onAppear {
@@ -520,35 +589,21 @@ struct LeaderboardView: View {
     }
 }
 
-// 新的包装视图，用于承载 GKGameCenterViewController 并处理背景
 struct GameCenterLeaderboardPresenterView: UIViewControllerRepresentable {
     let leaderboardID: String
     @Binding var isPresented: Bool
-    @ObservedObject var themeManager: ThemeManager // 接收 ThemeManager
+    @ObservedObject var themeManager: ThemeManager
 
     func makeUIViewController(context: Context) -> UIViewController {
-        // 1. 创建一个包装的 UIViewController
         let wrapperViewController = UIViewController()
-        
-        // 2. 设置包装 ViewController 的背景色
-        // 您可以根据 App 的主题来设置，或者使用一个与 Game Center 较协调的颜色
-        // 例如，使用当前主题的背景色
-        //wrapperViewController.view.backgroundColor = UIColor(themeManager.currentTheme.backgroundColor.color)
-        // 或者使用一个标准的系统灰色，这通常与 Game Center 的 UI 比较协调
-        // wrapperViewController.view.backgroundColor = UIColor.systemGroupedBackground
         wrapperViewController.view.backgroundColor = UIColor.clear
 
-        // 3. 创建 GameCenterViewController
-        let gameCenterViewController = GKGameCenterViewController(leaderboardID: leaderboardID,
-                                                                playerScope: .global,
-                                                                timeScope: .allTime)
+        let gameCenterViewController = GKGameCenterViewController(leaderboardID: leaderboardID,playerScope: .global,timeScope: .allTime)
         gameCenterViewController.gameCenterDelegate = context.coordinator
 
-        // 4. 将 GameCenterViewController 作为子视图控制器添加到包装器中
         wrapperViewController.addChild(gameCenterViewController)
         wrapperViewController.view.addSubview(gameCenterViewController.view)
         
-        // 5. 设置 GameCenterViewController 的 view 约束，使其填满包装器
         gameCenterViewController.view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             gameCenterViewController.view.topAnchor.constraint(equalTo: wrapperViewController.view.topAnchor),
@@ -562,9 +617,6 @@ struct GameCenterLeaderboardPresenterView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        // 当 SwiftUI 状态变化时，如果需要更新 UIKit 视图，可以在这里处理
-        // 对于当前场景，主要是在创建时设置好，通常不需要太多更新逻辑
-        // 但如果主题颜色动态改变且希望 sheet 背景也立即响应，则可能需要在这里更新 wrapperViewController.view.backgroundColor
         let newBackgroundColor = UIColor(themeManager.currentTheme.backgroundColor.color)
         if uiViewController.view.backgroundColor != newBackgroundColor {
             uiViewController.view.backgroundColor = newBackgroundColor
@@ -588,22 +640,21 @@ struct GameCenterLeaderboardPresenterView: UIViewControllerRepresentable {
     }
 }
 
-// MARK: 设置视图
 struct SettingsView: View {
     @EnvironmentObject var settingsManager: SettingsManager
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var gameManager: GameManager
     @EnvironmentObject var authManager: AuthManager
-    @Environment(\.openURL) var openURL // For opening settings URL
+    @Environment(\.openURL) var openURL
 
     @State private var showingResetAlert = false
-    @State private var showingiCloudInstructionAlert = false // New state for iCloud instruction
+    @State private var showingiCloudInstructionAlert = false
 
     var body: some View {
         Form {
             Section(header: Text(settingsManager.localizedString(forKey: "iCloudSectionTitle"))
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
-                .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
+                .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.8))) { // Use textColor
                 Toggle(settingsManager.localizedString(forKey: "useiCloudLogin"), isOn: $settingsManager.useiCloudLogin)
                     .onChange(of: settingsManager.useiCloudLogin) { oldValue, newValue in
                         SoundManager.playImpactHaptic(settings: settingsManager)
@@ -620,27 +671,26 @@ struct SettingsView: View {
                     }
                 Text(settingsManager.localizedString(forKey: "iCloudLoginDescription"))
                     .font(.caption)
-                    .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.6))
+                    .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.6)) // Use textColor
             }
            .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
-           .foregroundColor(themeManager.currentTheme.sliderColor.color)
-           .tint(themeManager.currentTheme.sliderColor.color)
+           .foregroundColor(themeManager.currentTheme.textColor.color) // Use textColor
+           .tint(themeManager.currentTheme.sliderColor.color) // Tint for toggle remains slider color for accent
 
             Section(header: Text("通用设置")
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
-                .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
+                .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.8))) { // Use textColor
                 Picker(settingsManager.localizedString(forKey: "language"), selection: $settingsManager.language) {
                     Text(settingsManager.localizedString(forKey: "chinese")).tag("zh")
                     Text(settingsManager.localizedString(forKey: "english")).tag("en")
                 }.onChange(of: settingsManager.language) { _, _ in SoundManager.playImpactHaptic(settings: settingsManager) }
             }
            .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
-           .foregroundColor(themeManager.currentTheme.sliderColor.color)
-
+           .foregroundColor(themeManager.currentTheme.textColor.color) // Use textColor
 
             Section(header: Text("音频与触感")
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
-                .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
+                .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.8))) { // Use textColor
                 Toggle(settingsManager.localizedString(forKey: "soundEffects"), isOn: $settingsManager.soundEffectsEnabled)
                         .onChange(of: settingsManager.soundEffectsEnabled) { _, _ in SoundManager.playImpactHaptic(settings: settingsManager) }
                 Toggle(settingsManager.localizedString(forKey: "music"), isOn: $settingsManager.musicEnabled)
@@ -649,12 +699,12 @@ struct SettingsView: View {
                         .onChange(of: settingsManager.hapticsEnabled) { _, newValue in if newValue { SoundManager.playImpactHaptic(settings: settingsManager) } }
             }
            .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
-           .foregroundColor(themeManager.currentTheme.sliderColor.color)
-           .tint(themeManager.currentTheme.sliderColor.color)
+           .foregroundColor(themeManager.currentTheme.textColor.color) // Use textColor
+           .tint(themeManager.currentTheme.sliderColor.color) // Tint for toggles
 
             Section(header: Text("游戏数据")
                 .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 14) : .caption)
-                .foregroundColor(themeManager.currentTheme.sliderColor.color.opacity(0.8))) {
+                .foregroundColor(themeManager.currentTheme.textColor.color.opacity(0.8))) { // Use textColor
                 Button(settingsManager.localizedString(forKey: "resetProgress"), role: .destructive) {
                     showingResetAlert = true
                     SoundManager.playHapticNotification(type: .warning, settings: settingsManager)
@@ -663,21 +713,17 @@ struct SettingsView: View {
             }
            .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
             
-            //开发者按钮
-            // --- 开始添加 ---
             Section(header: Text("开发者选项")) {
                 Button("重置 iCloud 已购主题", role: .destructive) {
-                    // 调用我们刚刚在 AuthManager 中添加的函数
                     authManager.resetPurchasedThemesInCloud()
                 }
                 .foregroundColor(.red)
-                .disabled(!authManager.isLoggedIn) // 只有在登录时才可用
+                .disabled(!authManager.isLoggedIn)
             }
             .listRowBackground(themeManager.currentTheme.backgroundColor.color.opacity(0.5))
-            // --- 结束添加 ---
-
         }
        .navigationTitle(settingsManager.localizedString(forKey: "settings"))
+       .navigationBarTitleDisplayMode(.inline)
        .background(themeManager.currentTheme.backgroundColor.color.ignoresSafeArea())
        .scrollContentBackground(.hidden)
        .alert(settingsManager.localizedString(forKey: "resetProgress"), isPresented: $showingResetAlert) {
@@ -701,7 +747,6 @@ struct SettingsView: View {
 func fetchPlayerScore(leaderboardID: String) {
     guard GKLocalPlayer.local.isAuthenticated else {
         print("Game Center: Player not authenticated. Cannot fetch score.")
-        // 在实际应用中，您可能想在这里更新UI，提示用户需要登录
         return
     }
 
@@ -709,63 +754,36 @@ func fetchPlayerScore(leaderboardID: String) {
 
     Task {
         do {
-            // 1. 加载特定的排行榜实例
-            // loadLeaderboards 是一个类型方法，返回一个包含 GKLeaderboard 实例的数组
             let leaderboards = try await GKLeaderboard.loadLeaderboards(IDs: [leaderboardID])
             
-            // 确保我们获取到了排行榜实例
             guard let specificLeaderboard = leaderboards.first else {
                 print("Game Center: Leaderboard with ID '\(leaderboardID)' not found or failed to load. Please double-check the ID in App Store Connect.")
-                // 在实际应用中，您可能想在这里更新UI，提示排行榜加载失败
                 return
             }
 
             print("Game Center: Successfully loaded leaderboard metadata for '\(specificLeaderboard.title ?? leaderboardID)'.")
 
-            // 2. 加载排行榜的条目 (entries)
-            // loadEntries 是一个实例方法
-            // 它返回一个元组，根据编译器错误，其结构为: (GKLeaderboard.Entry?, [GKLeaderboard.Entry], Int)
-            // 对应于 (localPlayerEntry, entries, totalPlayerCount)
-            
-            // 设置要加载的条目范围，例如前50名
             let fetchRange = NSRange(location: 1, length: 50) 
             
             let loadResult = try await specificLeaderboard.loadEntries(
-                for: .global,       // 获取全局排行榜
-                timeScope: .allTime, // 获取所有时间的成绩
-                range: fetchRange    // 指定加载范围
+                for: .global,
+                timeScope: .allTime,
+                range: fetchRange
             )
 
-            // 通过索引访问元组的元素
-            // loadResult.0 对应 localPlayerEntry: GKLeaderboard.Entry?
-            // loadResult.1 对应 entries: [GKLeaderboard.Entry]? (注意：API可能返回[GKLeaderboard.Entry]或[GKLeaderboard.Entry]?)
-            // loadResult.2 对应 totalPlayerCount: Int
-            
-            // 确保类型匹配，GKLeaderboard.loadEntries 返回的 entries 是 [GKLeaderboard.Entry] (非可选数组，但数组本身可能为空)
-            // 而元组的第二个元素根据错误提示是 [GKLeaderboard.Entry]
-            // 但为了安全，我们还是用可选绑定，因为API有时返回的是可选数组
-            let fetchedEntriesArray: [GKLeaderboard.Entry] = loadResult.1 // 根据错误提示，这里应该是 [GKLeaderboard.Entry]
-                                                                      // 如果 loadResult.1 本身是可选的 ([GKLeaderboard.Entry]?)，则需要可选绑定
-                                                                      // 但错误提示是 '(GKLeaderboard.Entry?, [GKLeaderboard.Entry], Int)'，表明第二个元素是非可选数组
+            let fetchedEntriesArray: [GKLeaderboard.Entry] = loadResult.1
 
-            // let localPlayerSpecificEntry: GKLeaderboard.Entry? = loadResult.0 
-            // let totalPlayers: Int = loadResult.2
-
-            if !fetchedEntriesArray.isEmpty { // 直接检查数组是否为空
+            if !fetchedEntriesArray.isEmpty {
                 print("Game Center: Successfully fetched \(fetchedEntriesArray.count) entries for leaderboard '\(leaderboardID)':")
                 for entry in fetchedEntriesArray {
                     print("  Rank: \(entry.rank), Player: \(entry.player.displayName), Score: \(entry.formattedScore) (Raw: \(entry.score)), Date: \(entry.date)")
-                    // 如果需要，可以进一步获取 entry.player.alias, entry.player.gamePlayerID 等
                 }
-                // 在实际应用中，您会在这里用这些 'entries' 更新您的UI
             } else {
                 print("Game Center: No entries found for leaderboard '\(leaderboardID)'. The leaderboard might be empty or data is still syncing.")
-                // 在实际应用中，您会在这里更新UI，提示没有数据
             }
 
         } catch {
             print("Game Center: Error fetching scores for leaderboard '\(leaderboardID)': \(error.localizedDescription)")
-            // 在实际应用中，您可能想在这里更新UI，提示加载错误
         }
     }
 }

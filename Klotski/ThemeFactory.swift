@@ -28,6 +28,8 @@ struct Theme: Identifiable, Codable, Equatable {
     var backgroundColor: CodableColor
     var sliderColor: CodableColor
     var sliderTextColor: CodableColor
+    // --- 新增：专门用于UI文本的颜色 ---
+    var textColor: CodableColor
     var boardBackgroundColor: CodableColor
     var boardGridLineColor: CodableColor
     var sliderShape: SliderShape = .roundedRectangle
@@ -45,18 +47,12 @@ struct Theme: Identifiable, Codable, Equatable {
             DarkThemeRenderer()
         case "forest":
             ForestThemeRenderer()
-        case "ocean":
-            OceanThemeRenderer()
         case "auroraGlass":
             AuroraGlassThemeRenderer()
-        case "toonPudding":
-            ToonPuddingThemeRenderer()
         case "woodcut":
             WoodcutThemeRenderer()
         case "memphisPop":
             MemphisPopThemeRenderer()
-        case "chocolate":
-            ChocolateThemeRenderer()
         case "mechanism":
             MechanismThemeRenderer()
         default:
@@ -64,8 +60,10 @@ struct Theme: Identifiable, Codable, Equatable {
         }
     }
 
+    // --- 修改：更新初始化方法以包含 textColor ---
     init(id: String, name: String, isPremium: Bool, price: Double? = nil, productID: String? = nil,
          backgroundColor: CodableColor, sliderColor: CodableColor,sliderTextColor: CodableColor,
+         textColor: CodableColor, // 添加新参数
          boardBackgroundColor: CodableColor, boardGridLineColor: CodableColor,
          sliderShape: SliderShape = .roundedRectangle, sliderContent: SliderContentType = .character,
          fontName: String? = nil, colorScheme: ColorScheme = .light) {
@@ -77,6 +75,7 @@ struct Theme: Identifiable, Codable, Equatable {
         self.backgroundColor = backgroundColor
         self.sliderColor = sliderColor
         self.sliderTextColor = sliderTextColor
+        self.textColor = textColor // 赋值
         self.boardBackgroundColor = boardBackgroundColor
         self.boardGridLineColor = boardGridLineColor
         self.sliderShape = sliderShape
@@ -91,37 +90,46 @@ struct Theme: Identifiable, Codable, Equatable {
 }
 
 struct AppThemeRepository {
+    // --- 修改：更新所有主题定义以包含 textColor ---
     static let allThemes: [Theme] = [
         Theme(id: "default", name: "默认浅色", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .white),
               sliderColor: CodableColor(color: .blue), sliderTextColor: CodableColor(color: .white),
+              textColor: CodableColor(color: Color(hex: "#333333")), // 深灰色文本
               boardBackgroundColor: CodableColor(color: Color(white: 0.9)), boardGridLineColor: CodableColor(color: Color(white: 0.7)),
               fontName: nil, colorScheme: .light),
+
+        Theme(id: "dark", name: "深邃夜空", isPremium: false, productID: nil,
+              backgroundColor: CodableColor(color: .black),
+              sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
+              textColor: CodableColor(color: .orange), // 橙色文本
+              boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
+              fontName: nil, colorScheme: .dark),
+
+        Theme(id: "forest", name: "森林绿意", isPremium: true, price: 1,  productID: "com.shenlan.Klotski.theme.forest",
+              backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
+              sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
+              textColor: CodableColor(color: Color(red: 45/255, green: 80/255, blue: 20/255)), // 深绿色文本
+              boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
+              fontName: "Georgia-Bold", colorScheme: .light),
         
         Theme(id: "auroraGlass", name: "极光玻璃", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: Color(red: 20/255, green: 20/255, blue: 40/255)), // 深紫色基底
               sliderColor: CodableColor(color: Color(red: 140/255, green: 160/255, blue: 200/255).opacity(0.5)), // 半透明的柔和蓝色
               sliderTextColor: CodableColor(color: .white),
+              textColor: CodableColor(color: .white.opacity(0.9)), // 高亮白色文本
               boardBackgroundColor: CodableColor(color: .clear), // 棋盘背景由材质提供
               boardGridLineColor: CodableColor(color: .white.opacity(0.2)), // 几乎不可见的网格线
               sliderShape: .roundedRectangle,
               sliderContent: .none,
-              fontName: "AvenirNext-Regular",
+              fontName: "Georgia-Bold",
               colorScheme: .dark),
-              
-        Theme(id: "toonPudding", name: "卡通布丁", isPremium: false, productID: nil,
-              backgroundColor: CodableColor(color: Color(hex: "#FFF5E1")), // 柔和的奶油黄
-              sliderColor: CodableColor(color: Color(hex: "#FFC93C")),     // 明亮的芒果黄
-              sliderTextColor: CodableColor(color: Color(hex: "#4A4A4A")), // 深灰色文字
-              boardBackgroundColor: CodableColor(color: Color(hex: "#FFE0B5")), // 稍深的背景
-              boardGridLineColor: CodableColor(color: Color(hex: "#E8C8A0")),   // 描边色
-              fontName: "ChalkboardSE-Bold", // 趣味字体
-              colorScheme: .light),
 
         Theme(id: "woodcut", name: "拟物木刻", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: Color(hex: "#6F4E37")), // 深木色
               sliderColor: CodableColor(color: Color(hex: "#C4A484")),     // 浅木色 (棋子)
               sliderTextColor: CodableColor(color: Color(hex: "#4B382A")), // 雕刻文字色
+              textColor: CodableColor(color: Color(hex: "#F3EAD3")), // 亚麻色文本
               boardBackgroundColor: CodableColor(color: Color(hex: "#A07855")), // 棋盘木板色
               boardGridLineColor: CodableColor(color: .clear),            // 无网格线
               fontName: "Georgia-Bold",
@@ -131,46 +139,22 @@ struct AppThemeRepository {
               backgroundColor: CodableColor(color: Color(hex: "#FDF0D5")), // 浅米色
               sliderColor: CodableColor(color: Color(hex: "#003049")),     // 深海军蓝 (棋子)
               sliderTextColor: CodableColor(color: .white),
+              textColor: CodableColor(color: Color(hex: "#C1121F")), // 亮红色文本
               boardBackgroundColor: CodableColor(color: Color(hex: "#C1121F").opacity(0.1)), // 红色棋盘底
               boardGridLineColor: CodableColor(color: Color(hex: "#F77F00").opacity(0.5)),   // 橙色网格
-              fontName: "AvenirNext-Heavy",
+              fontName: "Georgia-Bold",
               colorScheme: .light),
-
-        
-        Theme(id: "chocolate", name: "浓情巧克力", isPremium: false, productID: nil,
-              backgroundColor: CodableColor(color: Color(hex: "#3D2B1F")), // 背景色作为图片加载失败时的后备
-              sliderColor: CodableColor(color: Color(hex: "#8B5E3C")), // 用于按钮主体色
-              sliderTextColor: CodableColor(color: .white), // 用于按钮图标
-              boardBackgroundColor: CodableColor(color: Color(hex: "#5C4033")), // 棋盘背景色
-              boardGridLineColor: CodableColor(color: .clear), // 棋盘不需要网格线
-              sliderContent: .none, // 滑块内容由代码绘制，而非文字
-              fontName: "Georgia-Bold", // 用于按钮字体
-              colorScheme: .dark),
         
         Theme(id: "mechanism", name: "层岩机关", isPremium: false, productID: nil,
-                backgroundColor: CodableColor(color: Color(red: 100/255, green: 60/255, blue: 40/255)),    // 后备背景色：深暖棕4A3F3C
-                sliderColor: CodableColor(color: Color(hex: "#7B6F6A")),        // 棋子颜色：暖棕褐色
-                sliderTextColor: CodableColor(color: Color(hex: "#D9D1CB")),    // 文字颜色：柔和米灰
-                boardBackgroundColor: CodableColor(color: Color(hex: "#5D534F")),// 棋盘颜色：岩石灰
-                boardGridLineColor: CodableColor(color: .clear),                // 不需要网格线
-                fontName: "AvenirNext-Bold",
-                colorScheme: .dark),
-        
-        Theme(id: "dark", name: "深邃夜空", isPremium: false, productID: nil,
-              backgroundColor: CodableColor(color: .black),
-              sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
-              boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
-              fontName: nil, colorScheme: .dark),
-        Theme(id: "forest", name: "森林绿意", isPremium: false, productID: "com.shenlan.Klotski.theme.forest",
-              backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
-              sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
-              boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
-              fontName: "Georgia", colorScheme: .light),
-        Theme(id: "ocean", name: "蔚蓝海洋", isPremium: false, productID: "com.shenlan.Klotski.theme.ocean",
-              backgroundColor: CodableColor(color: Color(red: 86/255, green: 207/255, blue: 225/255)),
-              sliderColor: CodableColor(color: Color(red: 78/255, green: 168/255, blue: 222/255)), sliderTextColor: CodableColor(color: .white),
-              boardBackgroundColor: CodableColor(color: Color(red: 180/255, green: 225/255, blue: 235/255)), boardGridLineColor: CodableColor(color: Color(red: 100/255, green: 150/255, blue: 180/255)),
-              fontName: "HelveticaNeue-Light", colorScheme: .light),
+              backgroundColor: CodableColor(color: Color(red: 100/255, green: 60/255, blue: 40/255)),    // 后备背景色：深暖棕4A3F3C
+              sliderColor: CodableColor(color: Color(hex: "#7B6F6A")),        // 棋子颜色：暖棕褐色
+              sliderTextColor: CodableColor(color: Color(hex: "#D9D1CB")),    // 文字颜色：柔和米灰
+              textColor: CodableColor(color: Color(hex: "#FFD08A")), // 发光的金色文本
+              boardBackgroundColor: CodableColor(color: Color(hex: "#5D534F")),// 棋盘颜色：岩石灰
+              boardGridLineColor: CodableColor(color: .clear),                // 不需要网格线
+              fontName: "Georgia-Bold",
+              colorScheme: .dark),
+            
     ]
 }
 
@@ -209,7 +193,6 @@ extension Color {
         self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
     }
 
-    /// **FIX:** Helper function to adjust color brightness and return a new Color object.
     func adjusted(by brightness: CGFloat) -> Color {
         let uiColor = UIColor(self)
         var hue: CGFloat = 0
@@ -217,20 +200,17 @@ extension Color {
         var oldBrightness: CGFloat = 0
         var alpha: CGFloat = 0
 
-        // Try to get HSB components
         if uiColor.getHue(&hue, saturation: &saturation, brightness: &oldBrightness, alpha: &alpha) {
             let newBrightness = min(max(oldBrightness + brightness, 0.0), 1.0)
             return Color(UIColor(hue: hue, saturation: saturation, brightness: newBrightness, alpha: alpha))
         }
         
-        // Fallback for grayscale colors
         var white: CGFloat = 0
         if uiColor.getWhite(&white, alpha: &alpha) {
             let newWhite = min(max(white + brightness, 0.0), 1.0)
             return Color(UIColor(white: newWhite, alpha: alpha))
         }
         
-        // Return original color if conversion fails
         return self
     }
 }
@@ -248,6 +228,7 @@ protocol ThemeableViewFactory {
     @ViewBuilder func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View
     @ViewBuilder func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View
     func menuButtonStyle() -> AnyButtonStyle
+    func victoryButtonStyle() -> AnyButtonStyle
 }
 
 // MARK: - Standard & Existing Renderers
@@ -257,10 +238,7 @@ struct MechanismThemeRenderer: ThemeableViewFactory {
 
     func gameBackground() -> any View {
         ZStack {
-            // 后备的纯色背景，以防图片加载失败
             theme.backgroundColor.color.ignoresSafeArea()
-
-            // 移除所有不必要的颜色遮罩，保持图片原始色彩
             Image("mechanism_background")
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -270,64 +248,65 @@ struct MechanismThemeRenderer: ThemeableViewFactory {
         }
     }
     
+    // --- 修改：给棋盘做出更真实的边缘 ---
     func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
-        return shape
-            .fill(theme.boardBackgroundColor.color.opacity(0.8))
-            .overlay(
-                shape
-                    .stroke(Color.white.opacity(0.1), lineWidth: 8)
-                    .blur(radius: 6)
-                    .offset(x: 4, y: 4)
-                    .mask(shape)
-            )
-            .overlay(
-                shape
-                    .stroke(Color.black.opacity(0.4), lineWidth: 8)
-                    .blur(radius: 6)
-                    .offset(x: -4, y: -4)
-                    .mask(shape)
-            )
+        
+        return ZStack {
+            // 1. 棋盘底色
+            shape.fill(theme.boardBackgroundColor.color)
+
+            // 2. 模拟内嵌边缘（内阴影）
+            shape.strokeBorder(Color.black.opacity(0.5)).blur(radius: 2)
+
+            // 3. 模拟外边缘高光
+            shape
+                .stroke(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.white.opacity(0.25), .clear]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.5
+                )
+
+            // 4. 清晰的外框线，增加质感
+            shape
+                .stroke(Color.black.opacity(0.3), lineWidth: 3)
+        }
     }
 
-    // --- 棋子视图修改 (已修复错误) ---
+    // --- 修改：去掉棋子阴影 ---
     func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
         let shape = RoundedRectangle(cornerRadius: cellSize * 0.15, style: .continuous)
         
         return ZStack {
-            // 棋子的基础形状和阴影，提供立体感
-            shape
-                .fill(theme.sliderColor.color) // 图片加载失败时的后备颜色
-                .shadow(color: Color.white.opacity(0.15), radius: isDragging ? 6 : 4, x: isDragging ? -4 : -2, y: isDragging ? -4 : -2)
-                .shadow(color: Color.black.opacity(0.4), radius: isDragging ? 6 : 4, x: isDragging ? 4 : 2, y: isDragging ? 4 : 2)
-
-            // --- 错误修复 ---
-            // 直接在视图构建器 (@ViewBuilder) 中使用 switch 语句创建 Image 视图。
-            // 这样避免了在 @ViewBuilder 中声明局部变量，从而解决了 'buildExpression' 错误。
+            // 棋子纹理/图片层作为最底层
             switch (piece.width, piece.height) {
             case (2, 2):
-                // 请将 "mechanism_piece_2x2" 替换为你的 2x2 棋子图片名称
                 Image("mechanism_piece_2x2")
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             case (2, 1):
-                // 请将 "mechanism_piece_2x1" 替换为你的 2x1 棋子图片名称
                 Image("mechanism_piece_2x1")
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             case (1, 2):
-                // 请将 "mechanism_piece_1x2" 替换为你的 1x2 棋子图片名称
                 Image("mechanism_piece_1x2")
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             default: // 1x1
-                // 请将 "mechanism_piece_1x1" 替换为你的 1x1 棋子图片名称
                 Image("mechanism_piece_1x1")
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             }
+            
+            // 在图片上层叠加高光和描边效果
+            shape.strokeBorder(Color.white.opacity(0.2), lineWidth: 2)
         }
-        .clipShape(shape) // 保证图片被裁剪为棋子形状
+        .background(theme.sliderColor.color)
+        .clipShape(shape)
+        // 阴影已移除 .shadow(...)
         .scaleEffect(isDragging ? 1.05 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isDragging)
     }
@@ -335,6 +314,9 @@ struct MechanismThemeRenderer: ThemeableViewFactory {
 
     func menuButtonStyle() -> AnyButtonStyle {
         AnyButtonStyle(MechanismButtonStyle(theme: theme))
+    }
+    func victoryButtonStyle() -> AnyButtonStyle {
+        AnyButtonStyle(StandardMenuButtonStyle(theme: theme))
     }
 }
 
@@ -355,14 +337,13 @@ struct MechanismButtonStyle: ButtonStyle {
         var body: some View {
             let isPressed = configuration.isPressed && isActive
             
-            // --- 修改部分：实现雕刻文字效果 ---
             ZStack {
-                // 内阴影 (模拟雕刻的暗边，在左上方)
+                // 内阴影
                 configuration.label
                     .offset(x: -1, y: -1)
                     .foregroundColor(Color.black.opacity(0.4))
 
-                // 内高光 (模拟雕刻的亮边，在右下方)
+                // 内高光
                 configuration.label
                     .offset(x: 1, y: 1)
                     .foregroundColor(Color.white.opacity(0.15))
@@ -428,6 +409,7 @@ struct DefaultThemeRenderer: ThemeableViewFactory {
     func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View { StandardBoardBackgroundView(widthCells: widthCells, heightCells: heightCells, cellSize: cellSize, theme: theme) }
     func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View { StandardPieceView(piece: piece, cellSize: cellSize, theme: theme, isDragging: isDragging) }
     func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
+    func victoryButtonStyle() -> AnyButtonStyle { menuButtonStyle() }
 }
 
 struct DarkThemeRenderer: ThemeableViewFactory {
@@ -436,6 +418,7 @@ struct DarkThemeRenderer: ThemeableViewFactory {
     func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View { StandardBoardBackgroundView(widthCells: widthCells, heightCells: heightCells, cellSize: cellSize, theme: theme) }
     func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View { StandardPieceView(piece: piece, cellSize: cellSize, theme: theme, isDragging: isDragging) }
     func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
+    func victoryButtonStyle() -> AnyButtonStyle { menuButtonStyle() }
 }
 
 struct ForestThemeRenderer: ThemeableViewFactory {
@@ -444,14 +427,7 @@ struct ForestThemeRenderer: ThemeableViewFactory {
     func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View { StandardBoardBackgroundView(widthCells: widthCells, heightCells: heightCells, cellSize: cellSize, theme: theme) }
     func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View { StandardPieceView(piece: piece, cellSize: cellSize, theme: theme, isDragging: isDragging) }
     func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
-}
-
-struct OceanThemeRenderer: ThemeableViewFactory {
-    private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "ocean" }!
-    func gameBackground() -> any View { theme.backgroundColor.color.ignoresSafeArea() }
-    func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View { StandardBoardBackgroundView(widthCells: widthCells, heightCells: heightCells, cellSize: cellSize, theme: theme) }
-    func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View { StandardPieceView(piece: piece, cellSize: cellSize, theme: theme, isDragging: isDragging) }
-    func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
+    func victoryButtonStyle() -> AnyButtonStyle { menuButtonStyle() }
 }
 
 struct AuroraGlassThemeRenderer: ThemeableViewFactory {
@@ -472,39 +448,7 @@ struct AuroraGlassThemeRenderer: ThemeableViewFactory {
         RoundedRectangle(cornerRadius: cellSize * 0.15, style: .continuous).fill(theme.sliderColor.color).shadow(color: .black.opacity(isDragging ? 0.3 : 0.15), radius: isDragging ? 10 : 5, x: 0, y: isDragging ? 8 : 4)
     }
     func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
-}
-
-// MARK: - New Theme Renderers
-
-struct ToonPuddingThemeRenderer: ThemeableViewFactory {
-    private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "toonPudding" }!
-    
-    func gameBackground() -> any View { theme.backgroundColor.color.ignoresSafeArea() }
-    
-    func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
-        RoundedRectangle(cornerRadius: 20)
-            .fill(theme.boardBackgroundColor.color)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(theme.boardGridLineColor.color, lineWidth: 4)
-            )
-    }
-    
-    func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
-        let pieceShape = RoundedRectangle(cornerRadius: cellSize * 0.2)
-        ZStack {
-            pieceShape.fill(theme.sliderColor.color)
-            pieceShape.stroke(Color.black.opacity(0.6), lineWidth: 3)
-            
-            Text(piece.type.displayName)
-                .font(.custom(theme.fontName!, size: calculateFontSize(for: piece, cellSize: cellSize)))
-                .foregroundColor(theme.sliderTextColor.color)
-        }
-        .shadow(color: .black.opacity(isDragging ? 0.35 : 0.2), radius: 2, x: isDragging ? 6 : 4, y: isDragging ? 6 : 4)
-    }
-    
-    func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
-    private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat { max(12, cellSize * 0.4) }
+    func victoryButtonStyle() -> AnyButtonStyle { menuButtonStyle() }
 }
 
 struct WoodcutThemeRenderer: ThemeableViewFactory {
@@ -540,6 +484,8 @@ struct WoodcutThemeRenderer: ThemeableViewFactory {
     
     func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
     private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat { max(14, cellSize * 0.45) }
+
+    func victoryButtonStyle() -> AnyButtonStyle { menuButtonStyle() }
 }
 
 struct MemphisPopThemeRenderer: ThemeableViewFactory {
@@ -581,149 +527,9 @@ struct MemphisPopThemeRenderer: ThemeableViewFactory {
     
     func menuButtonStyle() -> AnyButtonStyle { AnyButtonStyle(StandardMenuButtonStyle(theme: theme)) }
     private func calculateFontSize(for piece: Piece, cellSize: CGFloat) -> CGFloat { max(16, cellSize * 0.5) }
+
+    func victoryButtonStyle() -> AnyButtonStyle { menuButtonStyle() }
 }
-
-// 浓情巧克力
-struct ChocolateThemeRenderer: ThemeableViewFactory {
-    private let theme: Theme = AppThemeRepository.allThemes.first { $0.id == "chocolate" }!
-
-    func gameBackground() -> any View {
-        Image("chocolate_background")
-            .resizable()
-            .scaledToFill()
-            .ignoresSafeArea()
-            .overlay(Color.black.opacity(0.2))
-    }
-
-    func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
-        let boardShape = RoundedRectangle(cornerRadius: 20, style: .continuous)
-        return boardShape
-            .fill(theme.boardBackgroundColor.color.opacity(0.5))
-            .background(.ultraThinMaterial)
-            .clipShape(boardShape)
-            .overlay(
-                boardShape
-                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.5), radius: 25, x: 0, y: 15)
-    }
-
-    func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
-        let content = ZStack {
-            switch (piece.width, piece.height) {
-            case (2, 2):
-                ChocolatePieceView(isDragging: isDragging, config: .dark)
-            case (1, 2), (2, 1):
-                ChocolatePieceView(isDragging: isDragging, config: .milk)
-            default: // 1x1
-                ChocolatePieceView(isDragging: isDragging, config: .white)
-            }
-        }
-
-        return content
-            .frame(width: CGFloat(piece.width) * cellSize, height: CGFloat(piece.height) * cellSize)
-            .scaleEffect(isDragging ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDragging)
-    }
-    
-    func menuButtonStyle() -> AnyButtonStyle {
-        AnyButtonStyle(ChocolateButtonStyle(theme: theme))
-    }
-}
-
-
-// MARK: - Unified Chocolate Piece View (Final Design)
-
-/// 统一的巧克力块视图，采用浮雕设计
-private struct ChocolatePieceView: View {
-    let isDragging: Bool
-    let config: ChocolateConfig
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        
-        ZStack {
-            // 主体颜色
-            shape.fill(config.baseColor)
-            
-            // 内阴影 - 营造凹陷感/立体感
-            shape
-                .strokeBorder(
-                    LinearGradient(
-                        gradient: Gradient(colors: [config.innerShadowColor.opacity(0.8), .clear]),
-                        startPoint: .bottomTrailing,
-                        endPoint: .topLeading
-                    ),
-                    lineWidth: 5
-                )
-                .clipped()
-            
-
-        }
-    }
-}
-
-/// 巧克力颜色和样式的配置
-private struct ChocolateConfig {
-    let baseColor: Color
-    let innerShadowColor: Color
-    let highlightColor: Color
-    let dropShadowColor: Color
-
-    static let dark = ChocolateConfig(
-        baseColor: Color(hex: "#422820"),
-        innerShadowColor: Color(hex: "#2E1E18"),
-        highlightColor: .white.opacity(0.35),
-        dropShadowColor: .black
-    )
-
-    static let milk = ChocolateConfig(
-        baseColor: Color(hex: "#9F6B47"),
-        innerShadowColor: Color(hex: "#7F5636"),
-        highlightColor: .white.opacity(0.35),
-        dropShadowColor: .black
-    )
-
-    static let white = ChocolateConfig(
-        baseColor: Color(hex: "#FDF6E9"), // 奶油白
-        innerShadowColor: Color(hex: "#EAE0D1"),
-        highlightColor: .white.opacity(0.35),
-        dropShadowColor: .black
-    )
-}
-
-/// 用于新巧克力主题的按钮样式 (代码实现)
-struct ChocolateButtonStyle: ButtonStyle {
-    let theme: Theme
-    
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.custom(theme.fontName ?? "Georgia-Bold", size: 20))
-            .fontWeight(.bold)
-            .padding(.vertical, 12)
-            .frame(maxWidth: 280)
-            .foregroundColor(Color(hex: "#F5EDE3")) // 象牙白文字
-            .background(
-                // 使用与牛奶巧克力类似的渐变
-                LinearGradient(
-                    gradient: Gradient(colors: [Color(hex: "#A0522D"), Color(hex: "#8B4513")]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(Color(hex: "#6F4E37").opacity(0.8), lineWidth: 2)
-            )
-            .shadow(color: .black.opacity(0.3), radius: configuration.isPressed ? 3 : 6, y: configuration.isPressed ? 2 : 5)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .brightness(configuration.isPressed ? -0.1 : 0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
-// MARK: - Reusable Standard Components
 
 fileprivate struct StandardBoardBackgroundView: View {
     let widthCells: Int, heightCells: Int, cellSize: CGFloat, theme: Theme
@@ -768,3 +574,58 @@ fileprivate struct StandardMenuButtonStyle: ButtonStyle {
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
+
+
+// 1. 定义一个视图修饰符，它会应用主题到导航栏
+struct NavigationBarThemeModifier: ViewModifier {
+    var theme: Theme
+
+    init(theme: Theme) {
+        self.theme = theme
+        
+        // 创建一个标准的外观配置对象
+        let appearance = UINavigationBarAppearance()
+
+        // --- 配置背景颜色 ---
+        // 'configureWithOpaqueBackground' 会创建一个不透明的背景
+        // 当页面上划时，导航栏的背景就是这个颜色
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .clear
+
+        appearance.shadowColor = .clear
+        
+        // --- 配置标题颜色 ---
+        // 'titleTextAttributes' 用于小标题（inline display mode）
+        appearance.titleTextAttributes = [.foregroundColor: UIColor(theme.textColor.color)]
+        
+        // --- 配置返回按钮：隐藏文字，只留箭头 ---
+        let backButtonAppearance = UIBarButtonItemAppearance()
+        // 通过将文字颜色设为透明来隐藏 "Back" 文字
+        backButtonAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.clear]
+        appearance.backButtonAppearance = backButtonAppearance
+        
+        // --- 修改：将返回箭头颜色与主题的文本颜色绑定 ---
+        // tintColor 控制着导航栏中所有可交互元素的默认颜色，包括返回箭头
+        UINavigationBar.appearance().tintColor = UIColor(theme.textColor.color)
+
+        // --- 应用外观配置 ---
+        // 'standardAppearance' 是导航栏在滚动时的标准外观
+        UINavigationBar.appearance().standardAppearance = appearance
+        // 'scrollEdgeAppearance' 是内容视图的顶部边缘与导航栏底部边缘对齐时的外观
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        // 'compactAppearance' 是在紧凑环境下（如横屏的iPhone）的外观
+        UINavigationBar.appearance().compactAppearance = appearance
+    }
+
+    func body(content: Content) -> some View {
+        content
+    }
+}
+
+// 2. 创建一个View扩展，让修饰符的调用更方便、更具SwiftUI风格
+extension View {
+    func navigationBarTheme(_ theme: Theme) -> some View {
+        self.modifier(NavigationBarThemeModifier(theme: theme))
+    }
+}
+
