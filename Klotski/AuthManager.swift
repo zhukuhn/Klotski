@@ -26,29 +26,18 @@ class AuthManager: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
+    // This key is no longer used to control logic, but might be kept if other parts of the app reference it.
+    // For a full cleanup, it should be removed everywhere. Here we leave its definition but remove its usage.
     static let useiCloudLoginKey = "useiCloudLogin"
 
     init() {
         container = CKContainer.default()
         privateDB = container.privateCloudDatabase
-        print("AuthManager (CloudKit v2): 初始化完成。")
+        print("AuthManager (CloudKit v2): 初始化完成。现在将始终尝试使用iCloud。")
 
-        let useiCloudInitial = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        if UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) == nil {
-            UserDefaults.standard.set(useiCloudInitial, forKey: AuthManager.useiCloudLoginKey)
-        }
-
-        if useiCloudInitial {
-            print("AuthManager init: iCloud login is enabled by preference. Checking status.")
-            checkiCloudAccountStatusAndFetchProfile()
-        } else {
-            print("AuthManager init: iCloud login is disabled by preference (default or user set).")
-            DispatchQueue.main.async {
-                self.clearLocalSessionForDisablediCloud(reason: "Initial setting is off.")
-                self.errorMessage = self.localizedErrorMessageForDisablediCloud()
-            }
-        }
-
+        // Logic now directly attempts to check iCloud status, ignoring any old preference.
+        checkiCloudAccountStatusAndFetchProfile()
+        
         NotificationCenter.default.publisher(for: .CKAccountChanged)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -59,19 +48,9 @@ class AuthManager: ObservableObject {
                 self.currentUser = nil
                 self.isLoggedIn = false
                 
-                DispatchQueue.main.async {
-                    UserDefaults.standard.removeObject(forKey: ThemeManager.locallyKnownPaidThemeIDsKey)
-                    print("AuthManager: Cleared ThemeManager.locallyKnownPaidThemeIDsKey from UserDefaults due to account change.")
-                }
-
-                let useiCloudCurrent = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-                if useiCloudCurrent {
-                    print("AuthManager: iCloud account changed, and preference is ON. Re-checking account status and profile.")
-                    self.checkiCloudAccountStatusAndFetchProfile()
-                } else {
-                    print("AuthManager: iCloud account changed, but preference is OFF. Ensuring local session is cleared.")
-                    self.clearLocalSessionForDisablediCloud(reason: "Account changed while preference is off.")
-                }
+                // Directly re-check account status without checking any preference.
+                print("AuthManager: iCloud account changed. Re-checking account status and profile.")
+                self.checkiCloudAccountStatusAndFetchProfile()
             }
             .store(in: &cancellables)
     }
@@ -81,12 +60,7 @@ class AuthManager: ObservableObject {
         print("AuthManager (CloudKit v2): Deinitialized.")
     }
     
-    private func localizedErrorMessageForDisablediCloud() -> String {
-        let sm = SettingsManager()
-        return sm.localizedString(forKey: "iCloudLoginDisabledMessage")
-    }
-
-    private func clearLocalSessionForDisablediCloud(reason: String) {
+    private func clearLocalUserSession(reason: String) {
         DispatchQueue.main.async {
             if self.currentUser != nil || self.isLoggedIn || self.isLoading {
                 print("AuthManager: Clearing local session. Reason: \(reason)")
@@ -102,46 +76,19 @@ class AuthManager: ObservableObject {
         }
     }
 
-    public func handleiCloudPreferenceChange(useiCloud: Bool) {
-        print("AuthManager: iCloud preference changed to \(useiCloud).")
-        UserDefaults.standard.set(useiCloud, forKey: AuthManager.useiCloudLoginKey)
-
-        if useiCloud {
-            self.errorMessage = nil
-            self.isLoading = true
-            print("AuthManager: Preference ON. Attempting to check iCloud status and fetch profile.")
-            checkiCloudAccountStatusAndFetchProfile()
-        } else {
-            clearLocalSessionForDisablediCloud(reason: "User toggled preference to OFF.")
-            self.errorMessage = localizedErrorMessageForDisablediCloud()
-        }
-    }
+    // This function is now obsolete as there's no preference to change.
+    // public func handleiCloudPreferenceChange(useiCloud: Bool) { ... }
 
     func checkiCloudAccountStatusAndFetchProfile() {
-        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        guard useiCloud else {
-            print("AuthManager checkiCloudAccountStatusAndFetchProfile: iCloud login preference is OFF. Aborting check.")
-            clearLocalSessionForDisablediCloud(reason: "Check called while preference is off.")
-            if self.errorMessage == nil {
-                 self.errorMessage = localizedErrorMessageForDisablediCloud()
-            }
-            return
-        }
-
+        // Removed guard check for the preference.
         self.isLoading = true
-        print("AuthManager: Checking iCloud account status (preference is ON)...")
+        print("AuthManager: Checking iCloud account status...")
 
         container.accountStatus { [weak self] (status, error) in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 
-                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-                guard currentiCloudPreference else {
-                    print("AuthManager accountStatus callback: iCloud login preference turned OFF during async. Aborting.")
-                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during account status check.")
-                    self.isLoading = false
-                    return
-                }
+                // Removed guard check for preference during async callback.
 
                 if let error = error {
                     print("AuthManager: Error checking iCloud account status: \(error.localizedDescription)")
@@ -180,27 +127,16 @@ class AuthManager: ObservableObject {
     }
 
     private func fetchICloudUserRecordID() {
-        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        guard useiCloud else {
-            print("AuthManager fetchICloudUserRecordID: iCloud login preference is OFF. Aborting fetch.")
-            clearLocalSessionForDisablediCloud(reason: "User Record ID fetch called while preference is off.")
-            return
-        }
-
-        print("AuthManager: Attempting to fetch iCloud User Record ID (preference is ON)...")
+        // Removed guard check for the preference.
+        print("AuthManager: Attempting to fetch iCloud User Record ID...")
         if !self.isLoading { self.isLoading = true }
 
         container.fetchUserRecordID { [weak self] (recordID, error) in
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
                 
-                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-                guard currentiCloudPreference else {
-                    print("AuthManager fetchUserRecordID callback: iCloud login preference turned OFF during async. Aborting.")
-                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during user ID fetch.")
-                    self.isLoading = false
-                    return
-                }
+                // Removed guard check for preference during async callback.
+                
                 let sm = SettingsManager()
                 if let error = error {
                     print("AuthManager DEBUG: Fetched iCloud User Record ID: NIL, Error: \(error.localizedDescription)")
@@ -224,13 +160,8 @@ class AuthManager: ObservableObject {
     }
 
     private func fetchOrCreateUserProfile(linkedToICloudUserRecordName iCloudRecordName: String) {
-        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        guard useiCloud else {
-            print("AuthManager fetchOrCreateUserProfile: iCloud login preference is OFF. Aborting.")
-            clearLocalSessionForDisablediCloud(reason: "Profile fetch/create called while preference is off.")
-            return
-        }
-        print("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName) (preference is ON)...")
+        // Removed guard check for the preference.
+        print("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName)...")
         print("AuthManager DEBUG: Querying UserProfile for iCloudUserRecordName: \(iCloudRecordName)")
         let sm = SettingsManager()
 
@@ -241,13 +172,7 @@ class AuthManager: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
 
-                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-                guard currentiCloudPreference else {
-                    print("AuthManager fetchOrCreateUserProfile callback: iCloud login preference turned OFF. Aborting.")
-                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile fetch/create.")
-                    self.isLoading = false
-                    return
-                }
+                // Removed guard check for preference during async callback.
 
                 switch result {
                 case .success(let data):
@@ -287,13 +212,8 @@ class AuthManager: ObservableObject {
     }
 
     private func createUserProfile(linkedToICloudUserRecordName iCloudRecordName: String) {
-        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        guard useiCloud else {
-            print("AuthManager createUserProfile: iCloud login preference is OFF. Aborting.")
-            clearLocalSessionForDisablediCloud(reason: "Profile create called while preference is off.")
-            return
-        }
-        print("AuthManager: Creating new UserProfile linked to iCloud User \(iCloudRecordName) (preference is ON)...")
+        // Removed guard check for the preference.
+        print("AuthManager: Creating new UserProfile linked to iCloud User \(iCloudRecordName)...")
         let sm = SettingsManager()
 
         let newUserProfile = UserProfile(
@@ -309,13 +229,7 @@ class AuthManager: ObservableObject {
                 guard let self = self else { self?.isLoading = false; return }
                 print("AuthManager DEBUG: Save new UserProfile result. Saved Record ID: \(savedRecord?.recordID.recordName ?? "NIL"), Error: \(error?.localizedDescription ?? "No error")")
 
-                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-                guard currentiCloudPreference else {
-                    print("AuthManager createUserProfile callback: iCloud login preference turned OFF. Aborting.")
-                    self.clearLocalSessionForDisablediCloud(reason: "Preference changed during profile creation.")
-                    self.isLoading = false
-                    return
-                }
+                // Removed guard check for preference during async callback.
 
                 if let error = error {
                     print("AuthManager: Error saving new UserProfile record: \(error.localizedDescription)")
@@ -346,13 +260,7 @@ class AuthManager: ObservableObject {
     }
     
     func saveCurrentUserProfile() {
-        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        guard useiCloud else {
-            print("AuthManager saveCurrentUserProfile: iCloud login preference is OFF. Cannot save profile.")
-            self.errorMessage = localizedErrorMessageForDisablediCloud()
-            return
-        }
-
+        // Removed guard check for the preference.
         guard let currentUserProfile = self.currentUser else {
             print("AuthManager: Cannot save profile. No current user.")
             return
@@ -370,7 +278,7 @@ class AuthManager: ObservableObject {
             return
         }
 
-        print("AuthManager: Saving current UserProfile (ID: \(currentUserProfile.id)) to CloudKit (preference is ON)...")
+        print("AuthManager: Saving current UserProfile (ID: \(currentUserProfile.id)) to CloudKit...")
         self.isLoading = true
         let sm = SettingsManager()
         
@@ -380,12 +288,7 @@ class AuthManager: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
                 
-                let currentiCloudPreference = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-                guard currentiCloudPreference else {
-                    print("AuthManager saveCurrentUserProfile callback: iCloud login preference turned OFF. Aborting save.")
-                    self.isLoading = false
-                    return
-                }
+                // Removed guard check for preference during async callback.
 
                 var recordToSave: CKRecord
                 if let fetchError = error as? CKError, fetchError.code == .unknownItem {
@@ -431,20 +334,15 @@ class AuthManager: ObservableObject {
 
     public func pseudoLogout() {
         print("AuthManager: Performing pseudo-logout (clearing local app session)...")
-        clearLocalSessionForDisablediCloud(reason: "Pseudo-logout called.")
+        clearLocalUserSession(reason: "Pseudo-logout called.")
         let sm = SettingsManager()
         self.errorMessage = sm.localizedString(forKey: "loggedOutMessage")
     }
 
     func updateUserPurchasedThemes(themeIDs: Set<String>) {
-        let useiCloud = UserDefaults.standard.object(forKey: AuthManager.useiCloudLoginKey) as? Bool ?? false
-        guard useiCloud else {
-            print("AuthManager updateUserPurchasedThemes: iCloud login preference is OFF. Cannot update themes on CloudKit.")
-            return
-        }
-
+        // Removed guard check for the preference.
         guard var profileToUpdate = self.currentUser else {
-            print("AuthManager: Cannot update purchased themes. No current user (or iCloud disabled).")
+            print("AuthManager: Cannot update purchased themes. No current user.")
             return
         }
         
@@ -457,6 +355,7 @@ class AuthManager: ObservableObject {
             print("AuthManager: No change in purchased themes. Skipping save.")
         }
     }
+    
     //开发者按钮：重置账户付费ID
     func resetPurchasedThemesInCloud() {
         print("AuthManager: Attempting to reset purchased themes in CloudKit...")

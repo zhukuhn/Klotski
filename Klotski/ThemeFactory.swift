@@ -106,14 +106,14 @@ struct AppThemeRepository {
               boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
               fontName: nil, colorScheme: .dark),
 
-        Theme(id: "forest", name: "森林绿意", isPremium: true, price: 1,  productID: "com.shenlan.Klotski.theme.forest",
+        Theme(id: "forest", name: "森林绿意", isPremium: false,  productID: nil,
               backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
               sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
               textColor: CodableColor(color: Color(red: 45/255, green: 80/255, blue: 20/255)), // 深绿色文本
               boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
               fontName: "Georgia-Bold", colorScheme: .light),
         
-        Theme(id: "auroraGlass", name: "极光玻璃", isPremium: false, productID: nil,
+        Theme(id: "auroraGlass", name: "极光玻璃", isPremium: true, price:1, productID: "com.shenlan.Klotski.theme.auroraGlass",
               backgroundColor: CodableColor(color: Color(red: 20/255, green: 20/255, blue: 40/255)), // 深紫色基底
               sliderColor: CodableColor(color: Color(red: 140/255, green: 160/255, blue: 200/255).opacity(0.5)), // 半透明的柔和蓝色
               sliderTextColor: CodableColor(color: .white),
@@ -125,7 +125,7 @@ struct AppThemeRepository {
               fontName: "Georgia-Bold",
               colorScheme: .dark),
 
-        Theme(id: "woodcut", name: "拟物木刻", isPremium: false, productID: nil,
+        Theme(id: "woodcut", name: "拟物木刻", isPremium: true, price:1, productID: "com.shenlan.Klotski.theme.woodcut",
               backgroundColor: CodableColor(color: Color(hex: "#6F4E37")), // 深木色
               sliderColor: CodableColor(color: Color(hex: "#C4A484")),     // 浅木色 (棋子)
               sliderTextColor: CodableColor(color: Color(hex: "#4B382A")), // 雕刻文字色
@@ -135,7 +135,7 @@ struct AppThemeRepository {
               fontName: "Georgia-Bold",
               colorScheme: .light),
               
-        Theme(id: "memphisPop", name: "孟菲斯波普", isPremium: false, productID: nil,
+        Theme(id: "memphisPop", name: "孟菲斯波普", isPremium: true, price:1, productID: "com.shenlan.Klotski.theme.memphisPop",
               backgroundColor: CodableColor(color: Color(hex: "#FDF0D5")), // 浅米色
               sliderColor: CodableColor(color: Color(hex: "#003049")),     // 深海军蓝 (棋子)
               sliderTextColor: CodableColor(color: .white),
@@ -145,7 +145,7 @@ struct AppThemeRepository {
               fontName: "Georgia-Bold",
               colorScheme: .light),
         
-        Theme(id: "mechanism", name: "层岩机关", isPremium: false, productID: nil,
+        Theme(id: "mechanism", name: "层岩机关", isPremium: true, price:3, productID: "com.shenlan.Klotski.theme.mechanism",
               backgroundColor: CodableColor(color: Color(red: 100/255, green: 60/255, blue: 40/255)),    // 后备背景色：深暖棕4A3F3C
               sliderColor: CodableColor(color: Color(hex: "#7B6F6A")),        // 棋子颜色：暖棕褐色
               sliderTextColor: CodableColor(color: Color(hex: "#D9D1CB")),    // 文字颜色：柔和米灰

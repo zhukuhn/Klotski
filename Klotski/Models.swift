@@ -37,10 +37,15 @@ struct RoundedCorner: Shape {
 enum PieceType: String, Codable, CaseIterable, Identifiable {
     case caoCao         // 曹操 (2x2)
     case guanYuH        // 横向关羽 (2x1)
+    case guanYuV
     case zhangFeiV      // 纵向张飞 (1x2)
+    case zhangFeiH
     case zhaoYunV       // 纵向赵云 (1x2)
+    case zhaoYunH
     case maChaoV        // 纵向马超 (1x2)
+    case maChaoH
     case huangZhongV    // 纵向黄忠 (1x2)
+    case huangZhongH
     case soldier        // 兵 (1x1)
 
     var id: String { self.rawValue }
@@ -48,8 +53,8 @@ enum PieceType: String, Codable, CaseIterable, Identifiable {
     var dimensions: (width: Int, height: Int) {
         switch self {
         case .caoCao: return (2, 2)
-        case .guanYuH: return (2, 1)
-        case .zhangFeiV, .zhaoYunV, .maChaoV, .huangZhongV: return (1, 2)
+        case .guanYuH, .zhangFeiH, .zhaoYunH, .maChaoH, .huangZhongH: return (2, 1)
+        case .guanYuV, .zhangFeiV, .zhaoYunV, .maChaoV, .huangZhongV: return (1, 2)
         case .soldier: return (1, 1)
         }
     }
@@ -57,11 +62,11 @@ enum PieceType: String, Codable, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .caoCao: return "曹"
-        case .guanYuH: return "关"
-        case .zhangFeiV: return "张"
-        case .zhaoYunV: return "赵"
-        case .maChaoV: return "马"
-        case .huangZhongV: return "黄"
+        case .guanYuH, .guanYuV: return "关"
+        case .zhangFeiH, .zhangFeiV: return "张"
+        case .zhaoYunH, .zhaoYunV: return "赵"
+        case .maChaoH, .maChaoV: return "马"
+        case .huangZhongH, .huangZhongV: return "黄"
         case .soldier: return "兵"
         }
     }

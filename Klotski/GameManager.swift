@@ -53,15 +53,15 @@ class GameManager: ObservableObject {
     @Published var levels: [Level] = [classicLevel, easyExitLevel, verticalChallengeLevel]
     
     @Published var moves: Int = 0
-    @Published var timeElapsed: TimeInterval = 0 // TimeInterval is Double, suitable for precision
+    @Published var timeElapsed: TimeInterval = 0
     @Published var isGameActive: Bool = false
     @Published var hasSavedGame: Bool = false
     @Published var isGameWon: Bool = false
     @Published var isPaused: Bool = false
 
     private var timerSubscription: Cancellable?
-    private var lastTimerFireDate: Date? // To calculate precise time delta
-    private let timerInterval: TimeInterval = 0.01 // Update every 0.01 seconds for centisecond precision
+    private var lastTimerFireDate: Date?
+    private let timerInterval: TimeInterval = 0.01
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -71,16 +71,16 @@ class GameManager: ObservableObject {
 
     private let savedInProgressLevelIDKey = "savedKlotskiInProgressLevelID"
     private let savedInProgressMovesKey = "savedKlotskiInProgressMoves"
-    private let savedInProgressTimeKey = "savedKlotskiInProgressTime" // This will store TimeInterval (Double)
+    private let savedInProgressTimeKey = "savedKlotskiInProgressTime"
     private let savedInProgressPiecesKey = "savedKlotskiInProgressPieces"
     private let savedInProgressLevelIndexKey = "savedKlotskiInProgressLevelIndex"
     private let savedInProgressIsPausedKey = "savedKlotskiInProgressIsPaused"
 
-    init() {
+    init(allLevels: [Level] = ClassicLevels.allClassicLevels) {
+        self.levels = allLevels
         let levelID = UserDefaults.standard.string(forKey: savedInProgressLevelIDKey)
         let piecesData = UserDefaults.standard.data(forKey: savedInProgressPiecesKey)
         let movesDataExists = UserDefaults.standard.object(forKey: savedInProgressMovesKey) != nil
-        // For time, we now directly store TimeInterval (Double)
         let timeDataExists = UserDefaults.standard.object(forKey: savedInProgressTimeKey) != nil
         let levelIndexExists = UserDefaults.standard.object(forKey: savedInProgressLevelIndexKey) != nil
         let isPausedDataExists = UserDefaults.standard.object(forKey: savedInProgressIsPausedKey) != nil
@@ -102,7 +102,8 @@ class GameManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] userProfile in
                 guard let self = self else { return }
-                if userProfile != nil && settingsManager.useiCloudLogin {
+                // Simplified logic: Sync if user is logged in.
+                if userProfile != nil {
                     print("GameManager: User logged in. Fetching best scores from CloudKit.")
                     Task { await self.fetchBestScoresFromCloud() }
                 } else if userProfile == nil {
@@ -111,7 +112,8 @@ class GameManager: ObservableObject {
             }
             .store(in: &cancellables)
 
-        if authManager.isLoggedIn && settingsManager.useiCloudLogin {
+        // Simplified logic: Sync if user is logged in.
+        if authManager.isLoggedIn {
             print("GameManager: Initial setup with logged-in user. Fetching best scores.")
             Task { await self.fetchBestScoresFromCloud() }
         }
@@ -123,7 +125,7 @@ class GameManager: ObservableObject {
 
         if isNewSession {
             moves = 0
-            timeElapsed = 0.0 // Reset with double
+            timeElapsed = 0.0
             isPaused = true 
         }
         
@@ -143,7 +145,7 @@ class GameManager: ObservableObject {
         let newLevel = levels[index]
         
         moves = 0
-        timeElapsed = 0.0 // Reset with double
+        timeElapsed = 0.0
         isPaused = false 
         isGameWon = false
         
@@ -155,7 +157,7 @@ class GameManager: ObservableObject {
         guard !isGameWon else { return }
         if !isPaused {
             isPaused = true
-            stopTimer() // Stops the timer and records the current timeElapsed
+            stopTimer()
             print("游戏已暂停。时间: \(formattedTime(timeElapsed))")
         }
     }
@@ -164,7 +166,7 @@ class GameManager: ObservableObject {
         guard isGameActive && !isGameWon else { return }
         if isPaused {
             isPaused = false
-            startTimer() // Restarts the timer
+            startTimer()
             SoundManager.playImpactHaptic(settings: settings)
             print("游戏已继续。")
         }
@@ -174,14 +176,14 @@ class GameManager: ObservableObject {
         stopTimer() 
         guard isGameActive && !isPaused && !isGameWon else { return }
         
-        lastTimerFireDate = Date() // Set the initial fire date
+        lastTimerFireDate = Date()
         timerSubscription = Timer.publish(every: timerInterval, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] currentDate in
                 guard let self = self, let lastFire = self.lastTimerFireDate else { return }
                 let interval = currentDate.timeIntervalSince(lastFire)
                 self.timeElapsed += interval
-                self.lastTimerFireDate = currentDate // Update for the next interval
+                self.lastTimerFireDate = currentDate
             }
         print("计时器已启动 (间隔: \(timerInterval)s)。")
     }
@@ -189,7 +191,7 @@ class GameManager: ObservableObject {
     func stopTimer() {
         timerSubscription?.cancel()
         timerSubscription = nil
-        lastTimerFireDate = nil // Clear the last fire date
+        lastTimerFireDate = nil
         print("计时器已停止。当前累计时间: \(timeElapsed)")
     }
     
@@ -269,13 +271,13 @@ class GameManager: ObservableObject {
         guard let level = currentLevel, !isGameWon else { return }
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
-            stopTimer() // Final timeElapsed recorded here
-            print("恭喜！关卡 \(level.name) 完成！总步数: \(moves), 时间: \(formattedTime(timeElapsed))") // formattedTime will show precision
+            stopTimer()
+            print("恭喜！关卡 \(level.name) 完成！总步数: \(moves), 时间: \(formattedTime(timeElapsed))")
             SoundManager.playSound(named: "victory_fanfare", settings: settings)
             SoundManager.playHapticNotification(type: .success, settings: settings)
             
             updateAndSyncBestScore(levelId: level.id, currentMoves: moves, currentTime: timeElapsed)
-            submitScoreToLeaderboard(levelID: level.id, moves: moves, time: timeElapsed) // Submit precise time
+            submitScoreToLeaderboard(levelID: level.id, moves: moves, time: timeElapsed)
             
             clearSavedGame()
         }
@@ -288,7 +290,7 @@ class GameManager: ObservableObject {
               let levelToContinue = levels.first(where: { $0.id == savedLevelID }),
               UserDefaults.standard.object(forKey: savedInProgressPiecesKey) != nil,
               UserDefaults.standard.object(forKey: savedInProgressMovesKey) != nil,
-              UserDefaults.standard.object(forKey: savedInProgressTimeKey) != nil, // Time is Double
+              UserDefaults.standard.object(forKey: savedInProgressTimeKey) != nil,
               UserDefaults.standard.object(forKey: savedInProgressIsPausedKey) != nil
         else {
             print("继续游戏失败：未找到有效或完整的本地存档。")
@@ -298,7 +300,7 @@ class GameManager: ObservableObject {
         self.currentLevel = levelToContinue
         self.currentLevelIndex = savedLevelIndex
         self.moves = UserDefaults.standard.integer(forKey: savedInProgressMovesKey)
-        self.timeElapsed = UserDefaults.standard.double(forKey: savedInProgressTimeKey) // Load Double
+        self.timeElapsed = UserDefaults.standard.double(forKey: savedInProgressTimeKey)
         self.isPaused = UserDefaults.standard.bool(forKey: savedInProgressIsPausedKey)
 
         if let savedPiecesData = UserDefaults.standard.data(forKey: savedInProgressPiecesKey) {
@@ -323,7 +325,7 @@ class GameManager: ObservableObject {
         UserDefaults.standard.set(currentLevel.id, forKey: savedInProgressLevelIDKey)
         UserDefaults.standard.set(currentIndex, forKey: savedInProgressLevelIndexKey)
         UserDefaults.standard.set(moves, forKey: savedInProgressMovesKey)
-        UserDefaults.standard.set(timeElapsed, forKey: savedInProgressTimeKey) // Save Double
+        UserDefaults.standard.set(timeElapsed, forKey: savedInProgressTimeKey)
         UserDefaults.standard.set(isPaused, forKey: savedInProgressIsPausedKey)
         do {
             let encodedPieces = try JSONEncoder().encode(pieces)
@@ -363,8 +365,7 @@ class GameManager: ObservableObject {
             }
         }
     }
-
-    // Updated to show centiseconds (hundredths of a second)
+    
     func formattedTime(_ time: TimeInterval?) -> String {
         guard let time = time else { return "--:--.--" }
         let totalSeconds = Int(time)
@@ -387,14 +388,14 @@ class GameManager: ObservableObject {
             print("新本地最佳步数记录 for \(levelId): \(currentMoves)")
         }
         if levels[levelIndex].bestTime == nil || currentTime < levels[levelIndex].bestTime! {
-            levels[levelIndex].bestTime = currentTime // currentTime is already precise
+            levels[levelIndex].bestTime = currentTime
             updatedLocally = true
             print("新本地最佳时间记录 for \(levelId): \(formattedTime(currentTime))")
         }
 
         if updatedLocally {
-            if let authMgr = authManager, let settingsMgr = settingsManager,
-               authMgr.isLoggedIn, settingsMgr.useiCloudLogin {
+            // Simplified logic: Sync if authManager exists and user is logged in.
+            if let authMgr = authManager, authMgr.isLoggedIn {
                 Task {
                     await saveBestScoreToCloud(
                         levelID: levelId,
@@ -408,13 +409,13 @@ class GameManager: ObservableObject {
 
     @MainActor 
     func saveBestScoreToCloud(levelID: String, moves: Int, time: TimeInterval) async {
-        guard let authMgr = authManager, let settingsMgr = settingsManager,
-              authMgr.isLoggedIn, settingsMgr.useiCloudLogin else {
-            print("CloudKit Sync: Not logged in or iCloud disabled. Skipping save for \(levelID).")
+        // Simplified logic: Sync if authManager exists and user is logged in.
+        guard let authMgr = authManager, authMgr.isLoggedIn else {
+            print("CloudKit Sync: Not logged in. Skipping save for \(levelID).")
             return
         }
         
-        print("CloudKit Sync: Attempting to save best score for level \(levelID): Moves - \(moves), Time - \(time)") // Time is Double
+        print("CloudKit Sync: Attempting to save best score for level \(levelID): Moves - \(moves), Time - \(time)")
 
         let recordID = CKRecord.ID(recordName: levelID) 
         var statsToSave = CompletedLevelCloudStats(id: levelID, bestMoves: moves, bestTime: time)
@@ -444,9 +445,9 @@ class GameManager: ObservableObject {
 
     @MainActor
     func fetchBestScoresFromCloud() async {
-        guard let authMgr = authManager, let settingsMgr = settingsManager,
-              authMgr.isLoggedIn, settingsMgr.useiCloudLogin else {
-            print("CloudKit Sync: Not logged in or iCloud disabled. Skipping fetch of best scores.")
+        // Simplified logic: Fetch if authManager exists and user is logged in.
+        guard let authMgr = authManager, authMgr.isLoggedIn else {
+            print("CloudKit Sync: Not logged in. Skipping fetch of best scores.")
             return
         }
         print("CloudKit Sync: Fetching all best scores from user's private database...")
@@ -477,7 +478,7 @@ class GameManager: ObservableObject {
                             }
 
                             let localTime = localLevel.bestTime
-                            let cloudTime = cloudStats.bestTime // cloudTime is Double
+                            let cloudTime = cloudStats.bestTime
                             if localTime == nil || cloudTime < localTime! {
                                 localLevel.bestTime = cloudTime
                                 localBestChanged = true
@@ -520,10 +521,8 @@ class GameManager: ObservableObject {
             return
         }
         
-        // Leaderboard IDs should be defined in App Store Connect
-        // Example format: com.yourbundleid.levelname.moves or com.yourbundleid.levelname.time
-        let movesLeaderboardID = "\(levelID)_moves" // Make these unique and match App Store Connect
-        let timeLeaderboardID = "\(levelID)_time"   // Make these unique and match App Store Connect
+        let movesLeaderboardID = "\(levelID)_moves"
+        let timeLeaderboardID = "\(levelID)_time"
 
         print("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
         GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { error in
@@ -534,9 +533,6 @@ class GameManager: ObservableObject {
             }
         }
 
-        // For time, Game Center expects an Int64.
-        // Common practice is to submit time in milliseconds or centiseconds.
-        // Let's use centiseconds (hundredths of a second) for better granularity in leaderboards.
         let timeInCentiseconds = Int64(time * 100)
         print("Game Center: Attempting to submit to \(timeLeaderboardID) - Time (centiseconds): \(timeInCentiseconds)")
         GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { error in
@@ -548,12 +544,10 @@ class GameManager: ObservableObject {
         }
     }
 
-    @MainActor // 确保在主线程，因为会与 GameKit 交互
+    @MainActor
     func syncAllLocalBestScoresToGameCenter() {
         guard GKLocalPlayer.local.isAuthenticated else {
             print("Game Center: Player not authenticated. Cannot sync all local best scores.")
-            // 考虑给用户提示，例如弹窗或信息条
-            // 可以通过 AuthManager 或 SettingsManager 发布一个错误/消息
             return
         }
 
@@ -564,8 +558,6 @@ class GameManager: ObservableObject {
         for level in levels {
             if let bestMoves = level.bestMoves, let bestTime = level.bestTime {
                 print("GameManager: Syncing score for level '\(level.name)' (ID: \(level.id)) - Moves: \(bestMoves), Time: \(String(format: "%.2f", bestTime))s")
-                // 调用现有的提交函数
-                // submitScoreToLeaderboard 已经包含了 Game Center 认证检查，但我们在此函数开头进行一次总检查更好
                 submitScoreToLeaderboard(levelID: level.id, moves: bestMoves, time: bestTime)
                 submittedCount += 1
             } else {
@@ -576,11 +568,9 @@ class GameManager: ObservableObject {
 
         if submittedCount > 0 {
             print("GameManager: Sync process completed. Attempted to submit \(submittedCount) scores.")
-            // 可以在此通知用户同步已尝试（成功与否取决于 Game Center 的响应）
         }
         if skippedCount > 0 && submittedCount == 0 {
             print("GameManager: Sync process completed. No local scores found to submit.")
-            // 提示用户没有可同步的本地成绩
         } else if skippedCount > 0 {
             print("GameManager: Skipped \(skippedCount) levels as they had no local best scores.")
         }

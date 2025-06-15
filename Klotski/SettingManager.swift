@@ -18,7 +18,9 @@ class SettingsManager: ObservableObject {
     @AppStorage("isSoundEffectsEnabled") var soundEffectsEnabled: Bool = true
     @AppStorage("isMusicEnabled") var musicEnabled: Bool = true
     @AppStorage("isHapticsEnabled") var hapticsEnabled: Bool = true
-    @AppStorage(AuthManager.useiCloudLoginKey) var useiCloudLogin: Bool = false
+
+    // The 'useiCloudLogin' @AppStorage property has been removed.
+    // All iCloud logic will now be handled directly by AuthManager based on account status.
 
     private let translations: [String: [String: String]] = [
         "en": [
@@ -39,13 +41,8 @@ class SettingsManager: ObservableObject {
             "backToMenu": "Back to Menu", "victoryTitle": "Congratulations!",
             "victoryMessage": "Level Cleared!", "confirmPassword": "Confirm Password",
             "passwordsDoNotMatch": "Passwords do not match!",
-            "useiCloudLogin": "Use iCloud Login",
-            "iCloudLoginDescription": "Enables saving progress, purchases, and leaderboard scores via iCloud. You may need to enable iCloud for Klotski in iPhone Settings.",
             "iCloudSectionTitle": "iCloud & Account",
-            "purchaseRequiresiCloud": "Purchasing this theme requires iCloud login to be enabled in settings.",
-            "applyPaidThemeRequiresiCloud": "Applying paid themes requires iCloud login to be enabled in settings.",
-            "leaderboardRequiresiCloud": "Leaderboard access and score submission require iCloud login to be enabled in settings.",
-            "iCloudLoginDisabledMessage": "iCloud login is disabled in settings.",
+            "iCloudLoginDisabledMessage": "iCloud login is required for this feature.",
             "openSettings": "Open Settings",
             "iCloudEnableInstructionTitle": "Enable iCloud for Klotski",
             "iCloudEnableInstructionMessage": "To use iCloud features, please ensure Klotski is allowed to use iCloud in your iPhone's Settings:\n\n1. Go to Settings > [Your Name] > iCloud.\n2. Scroll down to 'APPS USING ICLOUD' and tap 'Show All'.\n3. Find Klotski and make sure the switch is ON.",
@@ -73,7 +70,7 @@ class SettingsManager: ObservableObject {
             "iCloudConnectionError": "Cannot connect to iCloud.",
             "iCloudSyncError": "iCloud available, but app could not sync user data.",
             "iCloudLoginPrompt": "iCloud features require login. Check settings.",
-            "iCloudDisabledInSettings": "iCloud login is disabled. Cloud features are unavailable.",
+            "iCloudDisabledInSettings": "iCloud sync is currently unavailable.", // Reworded
             "storeKitErrorUnknown": "An unknown App Store error occurred.",
             "storeKitErrorProductIDsEmpty": "No product identifiers were provided.",
             "storeKitErrorProductsNotFound": "Products not found in the App Store.",
@@ -84,6 +81,8 @@ class SettingsManager: ObservableObject {
             "storeKitErrorFailedToLoadEntitlements": "Failed to load current purchases",
             "storeKitErrorUserCannotMakePayments": "This account cannot make payments.",
             "tryTheme": "Try",
+            "startTrialTitle": "Have a Try", "startTrialMessage": "You will have 10 seconds to experience this theme, unlimited times.",
+            "trialEnded": "Try Ended", "trialEndedMessage": "Want to buy this theme?",
         ],
         "zh": [
             "gameTitle": "华容道", "startGame": "开始游戏", "continueGame": "继续游戏",
@@ -103,13 +102,8 @@ class SettingsManager: ObservableObject {
             "backToMenu": "返回主菜单", "victoryTitle": "恭喜获胜!",
             "victoryMessage": "成功过关!", "confirmPassword": "确认密码",
             "passwordsDoNotMatch": "两次输入的密码不一致！",
-            "useiCloudLogin": "使用iCloud登录",
-            "iCloudLoginDescription": "通过iCloud同步游戏进度、购买项目和排行榜记录。您可能需要在iPhone设置中为本App开启iCloud。",
             "iCloudSectionTitle": "iCloud与账户",
-            "purchaseRequiresiCloud": "购买此主题需要在设置中启用iCloud登录。",
-            "applyPaidThemeRequiresiCloud": "应用付费主题需要在设置中启用iCloud登录。",
-            "leaderboardRequiresiCloud": "访问排行榜及提交记录需要在设置中启用iCloud登录。",
-            "iCloudLoginDisabledMessage": "iCloud登录已在设置中禁用。",
+            "iCloudLoginDisabledMessage": "此功能需要iCloud登录。",
             "openSettings": "打开设置",
             "iCloudEnableInstructionTitle": "为“华容道”启用iCloud",
             "iCloudEnableInstructionMessage": "要使用iCloud功能，请确保在您的iPhone设置中允许“华容道”使用iCloud：\n\n1. 前往 设置 > [您的姓名] > iCloud。\n2. 向下滚动到“使用ICLOUD的应用”，并轻点“显示全部”。\n3. 找到“华容道”并确保其开关已打开。",
@@ -137,7 +131,7 @@ class SettingsManager: ObservableObject {
             "iCloudConnectionError": "无法连接到iCloud。",
             "iCloudSyncError": "iCloud可用，但应用未能同步用户数据。",
             "iCloudLoginPrompt": "iCloud功能需要登录。请检查设置。",
-            "iCloudDisabledInSettings": "iCloud登录已禁用。云同步功能不可用。",
+            "iCloudDisabledInSettings": "iCloud同步功能当前不可用。",
             "storeKitErrorUnknown": "发生未知App Store错误。",
             "storeKitErrorProductIDsEmpty": "未提供产品ID。",
             "storeKitErrorProductsNotFound": "在App Store中未找到产品。",
@@ -148,6 +142,9 @@ class SettingsManager: ObservableObject {
             "storeKitErrorFailedToLoadEntitlements": "加载当前购买项目失败",
             "storeKitErrorUserCannotMakePayments": "此账户无法进行支付。",
             "tryTheme": "试用",
+            "startTrialTitle": "开始试用", "startTrialMessage": "您将有10秒钟体验此主题，次数不限",
+            "trialEnded": "试用结束", "trialEndedMessage": "是否购买该主题？",
+
         ]
     ]
 
