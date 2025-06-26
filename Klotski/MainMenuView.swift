@@ -481,8 +481,6 @@ struct LeaderboardView: View {
     
     @State private var isGameCenterAuthenticated = GKLocalPlayer.local.isAuthenticated
     
-    // --- 关键修复 ---
-    // 使用可选的 LeaderboardInfo 对象作为弹窗的触发器，这是避免白屏的关键。
     @State private var selectedLeaderboardForSheet: LeaderboardInfo? = nil
 
     // MARK: - Body
@@ -500,8 +498,6 @@ struct LeaderboardView: View {
         }
         .navigationTitle(settingsManager.localizedString(forKey: "leaderboard"))
         .navigationBarTitleDisplayMode(.inline)
-        // --- 关键修复 ---
-        // 使用 .fullScreenCover(item:content:) 模式，它已被证明在您的环境中不会产生白屏。
         .fullScreenCover(item: $selectedLeaderboardForSheet) { leaderboardInfo in
             GameCenterLeaderboardPresenterView(
                 leaderboardID: leaderboardInfo.id,
@@ -813,7 +809,7 @@ struct SettingsView: View {
                    }
                 }
                 
-                Link(destination: URL(string: "https://www.your-website.com/privacy-policy")!) { // <-- 请替换成你的隐私政策网址
+                Link(destination: URL(string: "https://www.privacypolicies.com/live/188121c0-134f-4e9a-bb14-79d5dae73d2b")!) {
                      HStack {
                         Text(settingsManager.localizedString(forKey: "settingsPrivacyPolicy"))
                         Spacer()
@@ -831,21 +827,6 @@ struct SettingsView: View {
             .listRowBackground(themeManager.currentTheme.backgroundColor.color.adjusted(by: themeManager.currentTheme.swiftUIScheme == .dark ? 0.1 : -0.05))
             // --- 修改：为整个Section应用统一的文字颜色 ---
             .foregroundColor(themeManager.currentTheme.textColor.color)
-            
-            // MARK: - Data Management
-            Section(header: Text(settingsManager.localizedString(forKey: "settingsDataManagement"))) {
-                Button(settingsManager.localizedString(forKey: "resetProgress"), role: .destructive) {
-                    showingResetAlert = true
-                    SoundManager.playHapticNotification(type: .warning, settings: settingsManager)
-                }
-                
-                Button(settingsManager.localizedString(forKey: "resetICloudPurchases"), role: .destructive) {
-                    authManager.resetPurchasedThemesInCloud()
-                }
-                .disabled(!authManager.isLoggedIn)
-            }
-           .listRowBackground(themeManager.currentTheme.backgroundColor.color.adjusted(by: themeManager.currentTheme.swiftUIScheme == .dark ? 0.1 : -0.05))
-           .foregroundColor(.red)
 
         }
        .navigationTitle(settingsManager.localizedString(forKey: "settings"))

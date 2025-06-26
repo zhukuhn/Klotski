@@ -76,9 +76,6 @@ class AuthManager: ObservableObject {
         }
     }
 
-    // This function is now obsolete as there's no preference to change.
-    // public func handleiCloudPreferenceChange(useiCloud: Bool) { ... }
-
     func checkiCloudAccountStatusAndFetchProfile() {
         // Removed guard check for the preference.
         self.isLoading = true

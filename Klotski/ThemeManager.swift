@@ -42,13 +42,13 @@ class ThemeManager: ObservableObject {
     init(authManager: AuthManager, settingsManager: SettingsManager, availableThemes: [Theme] = AppThemeRepository.allThemes) {
         self.themes = availableThemes
         
-        // --- FIX: Initialize purchased themes from local storage and free themes FIRST ---
+        // Initialize purchased themes from local storage and free themes FIRST ---
         // This ensures that even before iCloud syncs, we know what the user owns on THIS device.
         var initialPurchased = Set(UserDefaults.standard.stringArray(forKey: locallyPurchasedThemeIDsKey) ?? [])
         initialPurchased.formUnion(availableThemes.filter { !$0.isPremium }.map { $0.id })
         self._purchasedThemeIDs = Published(initialValue: initialPurchased)
 
-        // --- FIX: Restore the last used theme immediately upon initialization ---
+        // Restore the last used theme immediately upon initialization ---
         // We use the already-hydrated `purchasedThemeIDs` to validate it.
         let savedThemeID = UserDefaults.standard.string(forKey: currentThemeIDKey)
         let fallbackTheme = availableThemes.first { $0.id == "default" }!
@@ -67,7 +67,6 @@ class ThemeManager: ObservableObject {
         
         setupBindings(authManager: authManager)
 
-        // --- FIX: Fetch products only if they haven't been fetched yet ---
         Task {
             if self.storeKitProducts.isEmpty {
                 await fetchSKProducts()
@@ -131,7 +130,6 @@ class ThemeManager: ObservableObject {
     // MARK: - StoreKit Operations
 
     func fetchSKProducts() async {
-        // --- FIX: Add a check to prevent redundant fetching ---
         guard storeKitProducts.isEmpty else {
             debugLog("ThemeManager: Products already fetched. Skipping.")
             return
@@ -183,7 +181,7 @@ class ThemeManager: ObservableObject {
 
         if self.purchasedThemeIDs != oldPurchasedIDs {
             debugLog("ThemeManager: New themes processed. Updating storage and iCloud.")
-            // --- FIX: Save the updated full list to local UserDefaults ---
+            
             let currentPurchased = Array(self.purchasedThemeIDs)
             UserDefaults.standard.set(currentPurchased, forKey: locallyPurchasedThemeIDsKey)
             
@@ -203,7 +201,6 @@ class ThemeManager: ObservableObject {
     private func rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: AuthManager) {
         if isTrialActive { cancelTrial() }
         
-        // --- FIX: Rebuild the list from THREE sources: free, local, and iCloud ---
         // 1. Start with free themes
         var newPurchased = Set(self.themes.filter { !$0.isPremium }.map { $0.id })
         
@@ -229,8 +226,6 @@ class ThemeManager: ObservableObject {
             self.purchasedThemeIDs = newPurchased
         }
 
-        // --- FIX: After rebuilding the purchase list, ensure the current theme is still valid ---
-        // This is crucial for handling cases like user logging out.
         if !isThemePurchased(self.currentTheme) {
              debugLog("ThemeManager: Current theme '\(self.currentTheme.name)' is no longer valid after sync. Reverting to default.")
              let defaultTheme = themes.first { $0.id == "default" } ?? themes.first!
