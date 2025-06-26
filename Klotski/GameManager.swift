@@ -495,8 +495,7 @@ class GameManager: ObservableObject {
         let timeLeaderboardID = "\(levelID)_time"
 
         debugLog("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
-        GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { [weak self] error in
-            guard let self = self else { return }
+        GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { error in
             if let error = error {
                 debugLog("Game Center: Error submitting moves score to \(movesLeaderboardID): \(error.localizedDescription)")
             } else {
@@ -506,8 +505,7 @@ class GameManager: ObservableObject {
 
         let timeInCentiseconds = Int64(time * 100)
         debugLog("Game Center: Attempting to submit to \(timeLeaderboardID) - Time (centiseconds): \(timeInCentiseconds)")
-        GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { [weak self] error in
-            guard let self = self else { return }
+        GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { error in
             if let error = error {
                 debugLog("Game Center: Error submitting time score to \(timeLeaderboardID): \(error.localizedDescription)")
             } else {
