@@ -135,7 +135,7 @@ struct CompletedLevelCloudStats: Identifiable {
         guard record.recordType == CloudKitRecordTypes.CompletedLevelStats,
               let moves = record["bestMoves"] as? Int64, // CloudKit typically uses Int64 for numbers
               let time = record["bestTime"] as? Double else {
-            print("Error: Could not initialize CompletedLevelCloudStats from CKRecord. Missing fields or type mismatch for record: \(record.recordID.recordName)")
+            debugLog("Error: Could not initialize CompletedLevelCloudStats from CKRecord. Missing fields or type mismatch for record: \(record.recordID.recordName)")
             return nil
         }
         self.id = record.recordID.recordName // Assuming recordName is the levelID
@@ -151,7 +151,7 @@ struct CompletedLevelCloudStats: Identifiable {
         if let existing = existingRecord {
             record = existing
             if let localTag = self.ckRecordChangeTag, localTag != existing.recordChangeTag {
-                 print("Warning: CKRecord change tag mismatch for \(self.id). Local: \(localTag), Server: \(existing.recordChangeTag ?? "nil"). This might lead to a conflict if not handled by save policy.")
+                 debugLog("Warning: CKRecord change tag mismatch for \(self.id). Local: \(localTag), Server: \(existing.recordChangeTag ?? "nil"). This might lead to a conflict if not handled by save policy.")
             }
         } else {
             let recordID = CKRecord.ID(recordName: self.id)
@@ -200,14 +200,14 @@ struct UserProfile: Identifiable, Codable {
 extension UserProfile {
     init?(from record: CKRecord) {
         guard record.recordType == CloudKitRecordTypes.UserProfile else {
-            print("UserProfile init(from record): 记录类型不正确。预期为 '\(CloudKitRecordTypes.UserProfile)'，实际为 '\(record.recordType)'")
+            debugLog("UserProfile init(from record): 记录类型不正确。预期为 '\(CloudKitRecordTypes.UserProfile)'，实际为 '\(record.recordType)'")
             return nil
         }
         
         self.id = record.recordID.recordName
         
         guard let iCloudUserRecordName = record["iCloudUserRecordName"] as? String else {
-            print("UserProfile init(from record): 缺少 'iCloudUserRecordName' 字段或类型不匹配。")
+            debugLog("UserProfile init(from record): 缺少 'iCloudUserRecordName' 字段或类型不匹配。")
             return nil
         }
         self.iCloudUserRecordName = iCloudUserRecordName
@@ -232,7 +232,7 @@ extension UserProfile {
             if existing.recordID.recordName == self.id && existing.recordType == CloudKitRecordTypes.UserProfile {
                 recordToUse = existing
             } else {
-                print("UserProfile toCKRecord: 严重错误 - 提供的 existingRecord (id: \(existing.recordID.recordName), type: \(existing.recordType)) 与 UserProfile (id: \(self.id)) 不匹配。将创建一个新记录。")
+                debugLog("UserProfile toCKRecord: 严重错误 - 提供的 existingRecord (id: \(existing.recordID.recordName), type: \(existing.recordType)) 与 UserProfile (id: \(self.id)) 不匹配。将创建一个新记录。")
                 let newRecordID = CKRecord.ID(recordName: self.id)
                 recordToUse = CKRecord(recordType: CloudKitRecordTypes.UserProfile, recordID: newRecordID)
             }

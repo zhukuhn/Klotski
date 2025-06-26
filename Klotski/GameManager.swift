@@ -61,7 +61,7 @@ class GameManager: ObservableObject {
             hasSavedGame = false
             clearSavedGame() 
         }
-        print("GameManager init: Local in-progress save check complete. hasSavedGame = \(hasSavedGame)")
+        debugLog("GameManager init: Local in-progress save check complete. hasSavedGame = \(hasSavedGame)")
     }
 
     func setupDependencies(authManager: AuthManager, settingsManager: SettingsManager) {
@@ -74,17 +74,17 @@ class GameManager: ObservableObject {
                 guard let self = self else { return }
                 // Simplified logic: Sync if user is logged in.
                 if userProfile != nil {
-                    print("GameManager: User logged in. Fetching best scores from CloudKit.")
+                    debugLog("GameManager: User logged in. Fetching best scores from CloudKit.")
                     Task { await self.fetchBestScoresFromCloud() }
                 } else if userProfile == nil {
-                    print("GameManager: User logged out. Cloud scores will not be fetched/synced.")
+                    debugLog("GameManager: User logged out. Cloud scores will not be fetched/synced.")
                 }
             }
             .store(in: &cancellables)
 
         // Simplified logic: Sync if user is logged in.
         if authManager.isLoggedIn {
-            print("GameManager: Initial setup with logged-in user. Fetching best scores.")
+            debugLog("GameManager: Initial setup with logged-in user. Fetching best scores.")
             Task { await self.fetchBestScoresFromCloud() }
         }
     }
@@ -104,7 +104,7 @@ class GameManager: ObservableObject {
         
         pieces = level.piecePlacements.map { Piece(id: $0.id, type: $0.type, x: $0.initialX, y: $0.initialY) }
         rebuildGameBoard()
-        print("游戏开始/切换到: \(level.name), isPaused: \(isPaused)")
+        debugLog("游戏开始/切换到: \(level.name), isPaused: \(isPaused)")
         SoundManager.playImpactHaptic(settings: settings)
         
         if !isPaused && !isGameWon { startTimer() } else { stopTimer() }
@@ -128,7 +128,7 @@ class GameManager: ObservableObject {
         if !isPaused {
             isPaused = true
             stopTimer()
-            print("游戏已暂停。时间: \(formattedTime(timeElapsed))")
+            debugLog("游戏已暂停。时间: \(formattedTime(timeElapsed))")
         }
     }
 
@@ -138,7 +138,7 @@ class GameManager: ObservableObject {
             isPaused = false
             startTimer()
             SoundManager.playImpactHaptic(settings: settings)
-            print("游戏已继续。")
+            debugLog("游戏已继续。")
         }
     }
 
@@ -155,14 +155,14 @@ class GameManager: ObservableObject {
                 self.timeElapsed += interval
                 self.lastTimerFireDate = currentDate
             }
-        print("计时器已启动 (间隔: \(timerInterval)s)。")
+        debugLog("计时器已启动 (间隔: \(timerInterval)s)。")
     }
 
     func stopTimer() {
         timerSubscription?.cancel()
         timerSubscription = nil
         lastTimerFireDate = nil
-        print("计时器已停止。当前累计时间: \(timeElapsed)")
+        debugLog("计时器已停止。当前累计时间: \(timeElapsed)")
     }
     
     func attemptMove(pieceId: Int, dx: Int, dy: Int, settings: SettingsManager) -> Bool {
@@ -201,7 +201,7 @@ class GameManager: ObservableObject {
         }
         
         moves += 1 
-        print("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
+        debugLog("棋子 \(pieceId) 移动到 (\(newX), \(newY))，当前步数: \(moves)")
         
         checkWinCondition(movedPiece: pieceToMove, settings: settings)
         
@@ -242,7 +242,7 @@ class GameManager: ObservableObject {
         if movedPiece.id == level.targetPieceId && movedPiece.x == level.targetX && movedPiece.y == level.targetY {
             isGameWon = true
             stopTimer()
-            print("恭喜！关卡 \(level.name) 完成！总步数: \(moves), 时间: \(formattedTime(timeElapsed))")
+            debugLog("恭喜！关卡 \(level.name) 完成！总步数: \(moves), 时间: \(formattedTime(timeElapsed))")
             SoundManager.playSound(named: "victory_fanfare", settings: settings)
             SoundManager.playHapticNotification(type: .success, settings: settings)
             
@@ -263,7 +263,7 @@ class GameManager: ObservableObject {
               UserDefaults.standard.object(forKey: savedInProgressTimeKey) != nil,
               UserDefaults.standard.object(forKey: savedInProgressIsPausedKey) != nil
         else {
-            print("继续游戏失败：未找到有效或完整的本地存档。")
+            debugLog("继续游戏失败：未找到有效或完整的本地存档。")
             clearSavedGame(); hasSavedGame = false; return
         }
         
@@ -278,11 +278,11 @@ class GameManager: ObservableObject {
                 self.pieces = try JSONDecoder().decode([Piece].self, from: savedPiecesData)
                 rebuildGameBoard()
                 self.isGameActive = true; self.isGameWon = false
-                print("继续游戏: \(levelToContinue.name), 本地存档已加载, isPaused: \(self.isPaused)")
+                debugLog("继续游戏: \(levelToContinue.name), 本地存档已加载, isPaused: \(self.isPaused)")
                 if !self.isPaused && !self.isGameWon { startTimer() }
                 else { stopTimer() } 
             } catch {
-                print("错误：无法解码已保存的本地棋子状态: \(error)。")
+                debugLog("错误：无法解码已保存的本地棋子状态: \(error)。")
                 clearSavedGame(); hasSavedGame = false; isGameActive = false
             }
         }
@@ -301,9 +301,9 @@ class GameManager: ObservableObject {
             let encodedPieces = try JSONEncoder().encode(pieces)
             UserDefaults.standard.set(encodedPieces, forKey: savedInProgressPiecesKey)
             hasSavedGame = true
-            print("游戏进行中状态已保存到本地: \(currentLevel.name)")
+            debugLog("游戏进行中状态已保存到本地: \(currentLevel.name)")
         } catch {
-            print("错误：无法编码并保存本地棋子状态: \(error)")
+            debugLog("错误：无法编码并保存本地棋子状态: \(error)")
             hasSavedGame = false
         }
     }
@@ -316,7 +316,7 @@ class GameManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: savedInProgressPiecesKey)
         UserDefaults.standard.removeObject(forKey: savedInProgressIsPausedKey)
         hasSavedGame = false
-        print("已清除本地保存的游戏进行中状态")
+        debugLog("已清除本地保存的游戏进行中状态")
     }
 
 
@@ -347,7 +347,7 @@ class GameManager: ObservableObject {
 
     private func updateAndSyncBestScore(levelId: String, currentMoves: Int, currentTime: TimeInterval) {
         guard let levelIndex = levels.firstIndex(where: { $0.id == levelId }) else {
-            print("Error: Could not find level with ID \(levelId) to update best score.")
+            debugLog("Error: Could not find level with ID \(levelId) to update best score.")
             return
         }
 
@@ -355,12 +355,12 @@ class GameManager: ObservableObject {
         if levels[levelIndex].bestMoves == nil || currentMoves < levels[levelIndex].bestMoves! {
             levels[levelIndex].bestMoves = currentMoves
             updatedLocally = true
-            print("新本地最佳步数记录 for \(levelId): \(currentMoves)")
+            debugLog("新本地最佳步数记录 for \(levelId): \(currentMoves)")
         }
         if levels[levelIndex].bestTime == nil || currentTime < levels[levelIndex].bestTime! {
             levels[levelIndex].bestTime = currentTime
             updatedLocally = true
-            print("新本地最佳时间记录 for \(levelId): \(formattedTime(currentTime))")
+            debugLog("新本地最佳时间记录 for \(levelId): \(formattedTime(currentTime))")
         }
 
         if updatedLocally {
@@ -381,11 +381,11 @@ class GameManager: ObservableObject {
     func saveBestScoreToCloud(levelID: String, moves: Int, time: TimeInterval) async {
         // Simplified logic: Sync if authManager exists and user is logged in.
         guard let authMgr = authManager, authMgr.isLoggedIn else {
-            print("CloudKit Sync: Not logged in. Skipping save for \(levelID).")
+            debugLog("CloudKit Sync: Not logged in. Skipping save for \(levelID).")
             return
         }
         
-        print("CloudKit Sync: Attempting to save best score for level \(levelID): Moves - \(moves), Time - \(time)")
+        debugLog("CloudKit Sync: Attempting to save best score for level \(levelID): Moves - \(moves), Time - \(time)")
 
         let recordID = CKRecord.ID(recordName: levelID) 
         var statsToSave = CompletedLevelCloudStats(id: levelID, bestMoves: moves, bestTime: time)
@@ -397,19 +397,19 @@ class GameManager: ObservableObject {
             let ckRecord = statsToSave.toCKRecord(existingRecord: existingRecord)
             
             try await privateDB.save(ckRecord)
-            print("CloudKit Sync: Successfully saved best score for level \(levelID).")
+            debugLog("CloudKit Sync: Successfully saved best score for level \(levelID).")
             
         } catch let error as CKError where error.code == .unknownItem {
-            print("CloudKit Sync: Record for \(levelID) not found, creating new one.")
+            debugLog("CloudKit Sync: Record for \(levelID) not found, creating new one.")
             let ckRecord = statsToSave.toCKRecord() 
             do {
                 try await privateDB.save(ckRecord)
-                print("CloudKit Sync: Successfully created and saved best score for level \(levelID).")
+                debugLog("CloudKit Sync: Successfully created and saved best score for level \(levelID).")
             } catch {
-                print("CloudKit Sync: Error creating new best score record for \(levelID): \(error.localizedDescription)")
+                debugLog("CloudKit Sync: Error creating new best score record for \(levelID): \(error.localizedDescription)")
             }
         } catch {
-            print("CloudKit Sync: Error saving best score for level \(levelID): \(error.localizedDescription)")
+            debugLog("CloudKit Sync: Error saving best score for level \(levelID): \(error.localizedDescription)")
         }
     }
 
@@ -417,10 +417,10 @@ class GameManager: ObservableObject {
     func fetchBestScoresFromCloud() async {
         // Simplified logic: Fetch if authManager exists and user is logged in.
         guard let authMgr = authManager, authMgr.isLoggedIn else {
-            print("CloudKit Sync: Not logged in. Skipping fetch of best scores.")
+            debugLog("CloudKit Sync: Not logged in. Skipping fetch of best scores.")
             return
         }
-        print("CloudKit Sync: Fetching all best scores from user's private database...")
+        debugLog("CloudKit Sync: Fetching all best scores from user's private database...")
 
         let query = CKQuery(recordType: CloudKitRecordTypes.CompletedLevelStats, predicate: NSPredicate(value: true))
         
@@ -442,7 +442,7 @@ class GameManager: ObservableObject {
                             if localMoves == nil || cloudMoves < localMoves! {
                                 localLevel.bestMoves = cloudMoves
                                 localBestChanged = true
-                                print("CloudKit Sync: Updated local best moves for \(cloudStats.id) from cloud: \(cloudMoves)")
+                                debugLog("CloudKit Sync: Updated local best moves for \(cloudStats.id) from cloud: \(cloudMoves)")
                             } else if localMoves != nil && localMoves! < cloudMoves {
                                 needsCloudUpdate = true 
                             }
@@ -452,7 +452,7 @@ class GameManager: ObservableObject {
                             if localTime == nil || cloudTime < localTime! {
                                 localLevel.bestTime = cloudTime
                                 localBestChanged = true
-                                print("CloudKit Sync: Updated local best time for \(cloudStats.id) from cloud: \(formattedTime(cloudTime))")
+                                debugLog("CloudKit Sync: Updated local best time for \(cloudStats.id) from cloud: \(formattedTime(cloudTime))")
                             } else if localTime != nil && localTime! < cloudTime {
                                 needsCloudUpdate = true 
                             }
@@ -463,86 +463,55 @@ class GameManager: ObservableObject {
                             }
 
                             if needsCloudUpdate {
-                                print("CloudKit Sync: Local score for \(localLevel.id) is better. Syncing to cloud.")
+                                debugLog("CloudKit Sync: Local score for \(localLevel.id) is better. Syncing to cloud.")
                                 await saveBestScoreToCloud(levelID: localLevel.id, moves: localLevel.bestMoves!, time: localLevel.bestTime!)
                             }
                         }
                     }
                 case .failure(let error):
-                    print("CloudKit Sync: Error fetching a best score record: \(error.localizedDescription)")
+                    debugLog("CloudKit Sync: Error fetching a best score record: \(error.localizedDescription)")
                 }
             }
             if cloudScoresUpdated > 0 {
-                 print("CloudKit Sync: Successfully fetched and updated \(cloudScoresUpdated) local best scores from CloudKit.")
+                 debugLog("CloudKit Sync: Successfully fetched and updated \(cloudScoresUpdated) local best scores from CloudKit.")
             } else if matchResults.isEmpty {
-                print("CloudKit Sync: No best scores found in CloudKit for this user.")
+                debugLog("CloudKit Sync: No best scores found in CloudKit for this user.")
             } else {
-                print("CloudKit Sync: Fetched scores from CloudKit, but no local scores were updated (local might be same or better).")
+                debugLog("CloudKit Sync: Fetched scores from CloudKit, but no local scores were updated (local might be same or better).")
             }
 
         } catch {
-            print("CloudKit Sync: Error fetching all best scores: \(error.localizedDescription)")
-        }
-    }
-
-/// 新增的测试函数，用于获取排行榜信息以供调试
-    func testFetchLeaderboard(leaderboardID: String) {
-        Task {
-            do {
-                let leaderboards = try await GKLeaderboard.loadLeaderboards(IDs: [leaderboardID])
-                
-                guard let leaderboard = leaderboards.first else {
-                    print(">>> DEBUG: 无法加载排行榜 '\(leaderboardID)'。请检查 App Store Connect 中的 ID 是否完全一致，并且状态为'实时'。")
-                    return
-                }
-                
-                print(">>> DEBUG: 成功加载排行榜 '\(leaderboard.title)'。正在获取分数...")
-                // 这是最终修正的地方：正确解构返回的三个值的元组
-                let (_, entries, _) = try await leaderboard.loadEntries(for: .global, timeScope: .allTime, range: NSRange(location: 1, length: 10))
-                
-                if entries.isEmpty {
-                    print(">>> DEBUG: 排行榜 '\(leaderboardID)' 中没有任何分数。这可能意味着分数提交失败，或者还在等待苹果服务器处理。")
-                } else {
-                    print("🎉 >>> DEBUG: 成功获取到 \(entries.count) 条分数！这说明提交和后台都没有问题！")
-                    for entry in entries {
-                        print("    - 玩家: \(entry.player.displayName), 分数: \(entry.score)")
-                    }
-                }
-            } catch {
-                print(">>> DEBUG: 获取排行榜 '\(leaderboardID)' 时发生错误: \(error.localizedDescription)")
-            }
+            debugLog("CloudKit Sync: Error fetching all best scores: \(error.localizedDescription)")
         }
     }
 
     func submitScoreToLeaderboard(levelID: String, moves: Int, time: TimeInterval) {
         guard GKLocalPlayer.local.isAuthenticated else {
-            print("Game Center: Player not authenticated. Cannot submit score.")
+            debugLog("Game Center: Player not authenticated. Cannot submit score.")
             return
         }
         
         let movesLeaderboardID = "\(levelID)_moves"
         let timeLeaderboardID = "\(levelID)_time"
 
-        print("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
+        debugLog("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
         GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { [weak self] error in
             guard let self = self else { return }
             if let error = error {
-                print("Game Center: Error submitting moves score to \(movesLeaderboardID): \(error.localizedDescription)")
+                debugLog("Game Center: Error submitting moves score to \(movesLeaderboardID): \(error.localizedDescription)")
             } else {
-                print("Game Center: Successfully submitted moves score (\(moves)) to \(movesLeaderboardID).")
-                self.testFetchLeaderboard(leaderboardID: movesLeaderboardID)
+                debugLog("Game Center: Successfully submitted moves score (\(moves)) to \(movesLeaderboardID).")
             }
         }
 
         let timeInCentiseconds = Int64(time * 100)
-        print("Game Center: Attempting to submit to \(timeLeaderboardID) - Time (centiseconds): \(timeInCentiseconds)")
+        debugLog("Game Center: Attempting to submit to \(timeLeaderboardID) - Time (centiseconds): \(timeInCentiseconds)")
         GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { [weak self] error in
             guard let self = self else { return }
             if let error = error {
-                print("Game Center: Error submitting time score to \(timeLeaderboardID): \(error.localizedDescription)")
+                debugLog("Game Center: Error submitting time score to \(timeLeaderboardID): \(error.localizedDescription)")
             } else {
-                print("Game Center: Successfully submitted time score (\(timeInCentiseconds)cs) to \(timeLeaderboardID).")
-                self.testFetchLeaderboard(leaderboardID: movesLeaderboardID)
+                debugLog("Game Center: Successfully submitted time score (\(timeInCentiseconds)cs) to \(timeLeaderboardID).")
             }
         }
     }
@@ -550,32 +519,32 @@ class GameManager: ObservableObject {
     @MainActor
     func syncAllLocalBestScoresToGameCenter() async {
         guard GKLocalPlayer.local.isAuthenticated else {
-            print("Game Center: Player not authenticated. Cannot sync all local best scores.")
+            debugLog("Game Center: Player not authenticated. Cannot sync all local best scores.")
             return
         }
 
-        print("GameManager: Attempting to sync all local best scores to Game Center...")
+        debugLog("GameManager: Attempting to sync all local best scores to Game Center...")
         var submittedCount = 0
         var skippedCount = 0
 
         for level in levels {
             if let bestMoves = level.bestMoves, let bestTime = level.bestTime {
-                print("GameManager: Syncing score for level '\(level.name)' (ID: \(level.id)) - Moves: \(bestMoves), Time: \(String(format: "%.2f", bestTime))s")
+                debugLog("GameManager: Syncing score for level '\(level.name)' (ID: \(level.id)) - Moves: \(bestMoves), Time: \(String(format: "%.2f", bestTime))s")
                 submitScoreToLeaderboard(levelID: level.id, moves: bestMoves, time: bestTime)
                 submittedCount += 1
             } else {
-                print("GameManager: No local best score for level '\(level.name)' (ID: \(level.id)). Skipping sync for this level.")
+                debugLog("GameManager: No local best score for level '\(level.name)' (ID: \(level.id)). Skipping sync for this level.")
                 skippedCount += 1
             }
         }
 
         if submittedCount > 0 {
-            print("GameManager: Sync process completed. Attempted to submit \(submittedCount) scores.")
+            debugLog("GameManager: Sync process completed. Attempted to submit \(submittedCount) scores.")
         }
         if skippedCount > 0 && submittedCount == 0 {
-            print("GameManager: Sync process completed. No local scores found to submit.")
+            debugLog("GameManager: Sync process completed. No local scores found to submit.")
         } else if skippedCount > 0 {
-            print("GameManager: Skipped \(skippedCount) levels as they had no local best scores.")
+            debugLog("GameManager: Skipped \(skippedCount) levels as they had no local best scores.")
         }
     }
 }

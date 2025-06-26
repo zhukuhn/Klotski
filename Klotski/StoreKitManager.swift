@@ -79,35 +79,35 @@ class StoreKitManager: ObservableObject {
     private var transactionListener: Task<Void, Error>? = nil
 
     private init() {
-        print("StoreKitManager (StoreKit 2): Initialized.")
+        debugLog("StoreKitManager (StoreKit 2): Initialized.")
         transactionListener = listenForTransactions()
     }
 
     deinit {
         transactionListener?.cancel()
-        print("StoreKitManager (StoreKit 2): Deinitialized and transaction listener cancelled.")
+        debugLog("StoreKitManager (StoreKit 2): Deinitialized and transaction listener cancelled.")
     }
 
     func fetchProducts(productIDs: Set<String>) async {
         guard !productIDs.isEmpty else {
-            print("StoreKitManager: No product IDs provided to fetch.")
+            debugLog("StoreKitManager: No product IDs provided to fetch.")
             self.error = .productIDsEmpty
             return
         }
-        print("StoreKitManager: Fetching products for IDs: \(productIDs)")
+        debugLog("StoreKitManager: Fetching products for IDs: \(productIDs)")
         self.isLoading = true
         self.error = nil
 
         do {
             let storeProducts = try await Product.products(for: productIDs)
             self.fetchedProducts = storeProducts
-            print("StoreKitManager: Fetched products: \(self.fetchedProducts.map { $0.id })")
+            debugLog("StoreKitManager: Fetched products: \(self.fetchedProducts.map { $0.id })")
             if self.fetchedProducts.isEmpty && !productIDs.isEmpty {
-                print("StoreKitManager: No products returned from App Store for requested IDs.")
+                debugLog("StoreKitManager: No products returned from App Store for requested IDs.")
                 self.error = .productsNotFound
             }
         } catch {
-            print("StoreKitManager: Failed to fetch products: \(error)")
+            debugLog("StoreKitManager: Failed to fetch products: \(error)")
             self.error = .productsNotFound
         }
         self.isLoading = false
@@ -115,12 +115,12 @@ class StoreKitManager: ObservableObject {
 
     func purchase(_ product: Product) async {
         guard AppStore.canMakePayments else {
-            print("StoreKitManager: User cannot make payments.")
+            debugLog("StoreKitManager: User cannot make payments.")
             self.error = .userCannotMakePayments
             return
         }
         
-        print("StoreKitManager: Initiating purchase for product: \(product.id)")
+        debugLog("StoreKitManager: Initiating purchase for product: \(product.id)")
         self.isLoading = true
         self.error = nil
 
@@ -128,14 +128,14 @@ class StoreKitManager: ObservableObject {
             let result = try await product.purchase()
             try await handlePurchaseResult(result, for: product.id)
         } catch let actualStoreKitError as StoreKit.StoreKitError {
-             print("StoreKitManager: Purchase failed for \(product.id) with StoreKitError: \(actualStoreKitError.localizedDescription) (\(actualStoreKitError))")
+             debugLog("StoreKitManager: Purchase failed for \(product.id) with StoreKitError: \(actualStoreKitError.localizedDescription) (\(actualStoreKitError))")
              if case .userCancelled = actualStoreKitError {
                  self.error = .purchaseCancelled
              } else {
                  self.error = .purchaseFailed(actualStoreKitError)
              }
         } catch {
-            print("StoreKitManager: Purchase failed for \(product.id) with error: \(error)")
+            debugLog("StoreKitManager: Purchase failed for \(product.id) with error: \(error)")
             self.error = .purchaseFailed(error)
         }
         self.isLoading = false
@@ -144,25 +144,25 @@ class StoreKitManager: ObservableObject {
     private func handlePurchaseResult(_ result: Product.PurchaseResult, for productID: Product.ID) async throws {
         switch result {
         case .success(let verificationResult):
-            print("StoreKitManager: Purchase successful for \(productID), verifying transaction...")
+            debugLog("StoreKitManager: Purchase successful for \(productID), verifying transaction...")
             guard let transaction = await self.checkVerified(verificationResult) else {
                 self.error = .transactionVerificationFailed
                 return
             }
-            print("StoreKitManager: Transaction verified for \(productID). Finishing transaction.")
+            debugLog("StoreKitManager: Transaction verified for \(productID). Finishing transaction.")
             await transaction.finish()
             purchaseOrRestoreSuccessfulPublisher.send([transaction.productID])
 
         case .pending:
-            print("StoreKitManager: Purchase for \(productID) is pending.")
+            debugLog("StoreKitManager: Purchase for \(productID) is pending.")
             self.error = .purchasePending
 
         case .userCancelled:
-            print("StoreKitManager: User cancelled purchase for \(productID).")
+            debugLog("StoreKitManager: User cancelled purchase for \(productID).")
             self.error = .purchaseCancelled
         
         @unknown default:
-            print("StoreKitManager: Unknown purchase result for \(productID).")
+            debugLog("StoreKitManager: Unknown purchase result for \(productID).")
             self.error = .unknown
         }
     }
@@ -170,19 +170,19 @@ class StoreKitManager: ObservableObject {
     private func listenForTransactions() -> Task<Void, Error> {
         return Task.detached { @MainActor [weak self] in
             guard let self = self else { return }
-            print("StoreKitManager: Starting transaction listener...")
+            debugLog("StoreKitManager: Starting transaction listener...")
             for await verificationResult in Transaction.updates {
-                print("StoreKitManager: Received transaction update.")
+                debugLog("StoreKitManager: Received transaction update.")
                 guard let transaction = await self.checkVerified(verificationResult) else {
-                    print("StoreKitManager: Transaction update verification failed.")
+                    debugLog("StoreKitManager: Transaction update verification failed.")
                     continue
                 }
 
                 if transaction.revocationDate == nil {
-                     print("StoreKitManager: Verified transaction update for \(transaction.productID). Product type: \(transaction.productType)")
+                     debugLog("StoreKitManager: Verified transaction update for \(transaction.productID). Product type: \(transaction.productType)")
                      self.purchaseOrRestoreSuccessfulPublisher.send([transaction.productID])
                 } else {
-                     print("StoreKitManager: Transaction for \(transaction.productID) was revoked at \(transaction.revocationDate!).")
+                     debugLog("StoreKitManager: Transaction for \(transaction.productID) was revoked at \(transaction.revocationDate!).")
                 }
                 
                 await transaction.finish()
@@ -194,7 +194,7 @@ class StoreKitManager: ObservableObject {
     private func checkVerified<T>(_ verificationResult: VerificationResult<T>) async -> T? {
         switch verificationResult {
         case .unverified(let unverifiedTransaction, let verificationError):
-            print("StoreKitManager: Transaction unverified for \(unverifiedTransaction) with error: \(verificationError.localizedDescription)")
+            debugLog("StoreKitManager: Transaction unverified for \(unverifiedTransaction) with error: \(verificationError.localizedDescription)")
             return nil
         case .verified(let verifiedTransaction):
             return verifiedTransaction
@@ -202,23 +202,23 @@ class StoreKitManager: ObservableObject {
     }
 
     func syncTransactions() async {
-        print("StoreKitManager: Requesting AppStore.sync() to sync transactions.")
+        debugLog("StoreKitManager: Requesting AppStore.sync() to sync transactions.")
         self.isLoading = true
         self.error = nil
         do {
             try await AppStore.sync()
-            print("StoreKitManager: AppStore.sync() completed. Updates (if any) will be handled by the transaction listener.")
+            debugLog("StoreKitManager: AppStore.sync() completed. Updates (if any) will be handled by the transaction listener.")
             await checkForCurrentEntitlements()
         } catch {
-            print("StoreKitManager: AppStore.sync() failed with error: \(error)")
+            debugLog("StoreKitManager: AppStore.sync() failed with error: \(error)")
             self.error = .purchaseFailed(error)
         }
         self.isLoading = false
     }
 
     func checkForCurrentEntitlements() async {
-        print(String(repeating:"-",count:100))
-        print("StoreKitManager: Checking for current entitlements")
+        debugLog(String(repeating:"-",count:100))
+        debugLog("StoreKitManager: Checking for current entitlements")
         var successfullyEntitledProductIDs = Set<String>()
         var entitlementsFound = false
         
@@ -227,25 +227,25 @@ class StoreKitManager: ObservableObject {
             
             let typedResult: VerificationResult<StoreKit.Transaction> = verificationResult
             guard let transaction = await self.checkVerified(typedResult) else {
-                print("StoreKitManager: Found an unverified current entitlement, skipping.")
+                debugLog("StoreKitManager: Found an unverified current entitlement, skipping.")
                 continue
             }
             
             if transaction.productType == .nonConsumable && transaction.revocationDate == nil {
-                print("StoreKitManager: Found current entitlement for non-consumable: \(transaction.productID)")
+                debugLog("StoreKitManager: Found current entitlement for non-consumable: \(transaction.productID)")
                 successfullyEntitledProductIDs.insert(transaction.productID)
             }
         }
 
         if !entitlementsFound && self.error == nil {
-            print("StoreKitManager: No current entitlements found after iterating (or iterator was empty).")
+            debugLog("StoreKitManager: No current entitlements found after iterating (or iterator was empty).")
         }
 
         if !successfullyEntitledProductIDs.isEmpty {
-            print("StoreKitManager: Successfully processed current entitlements for IDs: \(successfullyEntitledProductIDs)")
+            debugLog("StoreKitManager: Successfully processed current entitlements for IDs: \(successfullyEntitledProductIDs)")
             purchaseOrRestoreSuccessfulPublisher.send(successfullyEntitledProductIDs)
         }
-        print(String(repeating:"-",count:100))
+        debugLog(String(repeating:"-",count:100))
     }
 }
 

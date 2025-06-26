@@ -246,20 +246,20 @@ struct SoundManager {
 
     static func playSound(named soundName: String, type: String = "mp3", settings: SettingsManager) {
         guard settings.soundEffectsEnabled else { return }
-        print("SoundManager: Playing sound '\(soundName)' (if enabled and sound file exists)")
+        debugLog("SoundManager: Playing sound '\(soundName)' (if enabled and sound file exists)")
     }
 
     static func playHapticNotification(type: UINotificationFeedbackGenerator.FeedbackType, settings: SettingsManager) {
         guard settings.hapticsEnabled else { return }
         hapticNotificationGenerator.prepare()
         hapticNotificationGenerator.notificationOccurred(type)
-        print("SoundManager: Playing haptic notification \(type) (if enabled)")
+        debugLog("SoundManager: Playing haptic notification \(type) (if enabled)")
     }
 
     static func playImpactHaptic(settings: SettingsManager) {
         guard settings.hapticsEnabled else { return }
         hapticImpactGenerator.prepare()
         hapticImpactGenerator.impactOccurred()
-        print("SoundManager: Playing impact haptic (if enabled)")
+        debugLog("SoundManager: Playing impact haptic (if enabled)")
     }
 }

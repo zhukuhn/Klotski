@@ -856,7 +856,7 @@ struct SettingsView: View {
             Button(settingsManager.localizedString(forKey: "reset"), role: .destructive) {
                 gameManager.levels.indices.forEach { gameManager.levels[$0].bestMoves = nil; gameManager.levels[$0].bestTime = nil }
                 gameManager.clearSavedGame()
-                print("游戏进度已重置")
+                debugLog("游戏进度已重置")
                 SoundManager.playHapticNotification(type: .success, settings: settingsManager)
             }
             Button(settingsManager.localizedString(forKey: "cancel"), role: .cancel) {}
@@ -922,22 +922,22 @@ struct SettingsView: View {
 
 func fetchPlayerScore(leaderboardID: String) {
     guard GKLocalPlayer.local.isAuthenticated else {
-        print("Game Center: Player not authenticated. Cannot fetch score.")
+        debugLog("Game Center: Player not authenticated. Cannot fetch score.")
         return
     }
 
-    print("Game Center: Attempting to fetch scores for leaderboard ID - \(leaderboardID)")
+    debugLog("Game Center: Attempting to fetch scores for leaderboard ID - \(leaderboardID)")
 
     Task {
         do {
             let leaderboards = try await GKLeaderboard.loadLeaderboards(IDs: [leaderboardID])
             
             guard let specificLeaderboard = leaderboards.first else {
-                print("Game Center: Leaderboard with ID '\(leaderboardID)' not found or failed to load. Please double-check the ID in App Store Connect.")
+                debugLog("Game Center: Leaderboard with ID '\(leaderboardID)' not found or failed to load. Please double-check the ID in App Store Connect.")
                 return
             }
 
-            print("Game Center: Successfully loaded leaderboard metadata for '\(specificLeaderboard.title ?? leaderboardID)'.")
+            debugLog("Game Center: Successfully loaded leaderboard metadata for '\(specificLeaderboard.title ?? leaderboardID)'.")
 
             let fetchRange = NSRange(location: 1, length: 50) 
             
@@ -950,16 +950,16 @@ func fetchPlayerScore(leaderboardID: String) {
             let fetchedEntriesArray: [GKLeaderboard.Entry] = loadResult.1
 
             if !fetchedEntriesArray.isEmpty {
-                print("Game Center: Successfully fetched \(fetchedEntriesArray.count) entries for leaderboard '\(leaderboardID)':")
+                debugLog("Game Center: Successfully fetched \(fetchedEntriesArray.count) entries for leaderboard '\(leaderboardID)':")
                 for entry in fetchedEntriesArray {
-                    print("  Rank: \(entry.rank), Player: \(entry.player.displayName), Score: \(entry.formattedScore) (Raw: \(entry.score)), Date: \(entry.date)")
+                    debugLog("  Rank: \(entry.rank), Player: \(entry.player.displayName), Score: \(entry.formattedScore) (Raw: \(entry.score)), Date: \(entry.date)")
                 }
             } else {
-                print("Game Center: No entries found for leaderboard '\(leaderboardID)'. The leaderboard might be empty or data is still syncing.")
+                debugLog("Game Center: No entries found for leaderboard '\(leaderboardID)'. The leaderboard might be empty or data is still syncing.")
             }
 
         } catch {
-            print("Game Center: Error fetching scores for leaderboard '\(leaderboardID)': \(error.localizedDescription)")
+            debugLog("Game Center: Error fetching scores for leaderboard '\(leaderboardID)': \(error.localizedDescription)")
         }
     }
 }

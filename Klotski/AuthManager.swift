@@ -33,7 +33,7 @@ class AuthManager: ObservableObject {
     init() {
         container = CKContainer.default()
         privateDB = container.privateCloudDatabase
-        print("AuthManager (CloudKit v2): 初始化完成。现在将始终尝试使用iCloud。")
+        debugLog("AuthManager (CloudKit v2): 初始化完成。现在将始终尝试使用iCloud。")
 
         // Logic now directly attempts to check iCloud status, ignoring any old preference.
         checkiCloudAccountStatusAndFetchProfile()
@@ -42,14 +42,14 @@ class AuthManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self = self else { return }
-                print("AuthManager: Received CKAccountChanged notification. Clearing previous user session.")
+                debugLog("AuthManager: Received CKAccountChanged notification. Clearing previous user session.")
                 self.iCloudUserActualRecordID = nil
 
                 self.currentUser = nil
                 self.isLoggedIn = false
                 
                 // Directly re-check account status without checking any preference.
-                print("AuthManager: iCloud account changed. Re-checking account status and profile.")
+                debugLog("AuthManager: iCloud account changed. Re-checking account status and profile.")
                 self.checkiCloudAccountStatusAndFetchProfile()
             }
             .store(in: &cancellables)
@@ -57,13 +57,13 @@ class AuthManager: ObservableObject {
 
     deinit {
         cancellables.forEach { $0.cancel() }
-        print("AuthManager (CloudKit v2): Deinitialized.")
+        debugLog("AuthManager (CloudKit v2): Deinitialized.")
     }
     
     private func clearLocalUserSession(reason: String) {
         DispatchQueue.main.async {
             if self.currentUser != nil || self.isLoggedIn || self.isLoading {
-                print("AuthManager: Clearing local session. Reason: \(reason)")
+                debugLog("AuthManager: Clearing local session. Reason: \(reason)")
                 self.currentUser = nil
                 self.isLoggedIn = false
                 self.iCloudUserActualRecordID = nil
@@ -82,7 +82,7 @@ class AuthManager: ObservableObject {
     func checkiCloudAccountStatusAndFetchProfile() {
         // Removed guard check for the preference.
         self.isLoading = true
-        print("AuthManager: Checking iCloud account status...")
+        debugLog("AuthManager: Checking iCloud account status...")
 
         container.accountStatus { [weak self] (status, error) in
             DispatchQueue.main.async {
@@ -91,7 +91,7 @@ class AuthManager: ObservableObject {
                 // Removed guard check for preference during async callback.
 
                 if let error = error {
-                    print("AuthManager: Error checking iCloud account status: \(error.localizedDescription)")
+                    debugLog("AuthManager: Error checking iCloud account status: \(error.localizedDescription)")
                     self.errorMessage = "Failed to check iCloud status: \(error.localizedDescription)"
                     self.iCloudAccountStatus = .couldNotDetermine
                     self.isLoggedIn = false; self.currentUser = nil; self.isLoading = false
@@ -99,7 +99,7 @@ class AuthManager: ObservableObject {
                 }
 
                 self.iCloudAccountStatus = status
-                print("AuthManager: iCloud Account Status: \(status.description)")
+                debugLog("AuthManager: iCloud Account Status: \(status.description)")
                 let sm = SettingsManager()
 
                 switch status {
@@ -128,7 +128,7 @@ class AuthManager: ObservableObject {
 
     private func fetchICloudUserRecordID() {
         // Removed guard check for the preference.
-        print("AuthManager: Attempting to fetch iCloud User Record ID...")
+        debugLog("AuthManager: Attempting to fetch iCloud User Record ID...")
         if !self.isLoading { self.isLoading = true }
 
         container.fetchUserRecordID { [weak self] (recordID, error) in
@@ -139,19 +139,19 @@ class AuthManager: ObservableObject {
                 
                 let sm = SettingsManager()
                 if let error = error {
-                    print("AuthManager DEBUG: Fetched iCloud User Record ID: NIL, Error: \(error.localizedDescription)")
+                    debugLog("AuthManager DEBUG: Fetched iCloud User Record ID: NIL, Error: \(error.localizedDescription)")
                     self.errorMessage = "\(sm.localizedString(forKey: "iCloudFetchUserFailed")): \(error.localizedDescription)"
                     self.iCloudUserActualRecordID = nil; self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                     return
                 }
 
-                print("AuthManager DEBUG: Fetched iCloud User Record ID: \(recordID?.recordName ?? "NIL"), Error: No error")
+                debugLog("AuthManager DEBUG: Fetched iCloud User Record ID: \(recordID?.recordName ?? "NIL"), Error: No error")
                 if let recordID = recordID {
-                    print("AuthManager: Successfully fetched iCloud User Record ID: \(recordID.recordName)")
+                    debugLog("AuthManager: Successfully fetched iCloud User Record ID: \(recordID.recordName)")
                     self.iCloudUserActualRecordID = recordID
                     self.fetchOrCreateUserProfile(linkedToICloudUserRecordName: recordID.recordName)
                 } else {
-                    print("AuthManager: No iCloud User Record ID fetched.")
+                    debugLog("AuthManager: No iCloud User Record ID fetched.")
                     self.errorMessage = sm.localizedString(forKey: "iCloudNoUserIdentity")
                     self.iCloudUserActualRecordID = nil; self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                 }
@@ -161,8 +161,8 @@ class AuthManager: ObservableObject {
 
     private func fetchOrCreateUserProfile(linkedToICloudUserRecordName iCloudRecordName: String) {
         // Removed guard check for the preference.
-        print("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName)...")
-        print("AuthManager DEBUG: Querying UserProfile for iCloudUserRecordName: \(iCloudRecordName)")
+        debugLog("AuthManager: Fetching or creating UserProfile for iCloud User \(iCloudRecordName)...")
+        debugLog("AuthManager DEBUG: Querying UserProfile for iCloudUserRecordName: \(iCloudRecordName)")
         let sm = SettingsManager()
 
         let predicate = NSPredicate(format: "iCloudUserRecordName == %@", iCloudRecordName)
@@ -180,30 +180,30 @@ class AuthManager: ObservableObject {
                         let matchedRecordID = firstMatch.0
                         switch firstMatch.1 {
                         case .success(let existingUserProfileRecord):
-                            print("AuthManager DEBUG: Found existing UserProfile. RecordName: \(existingUserProfileRecord.recordID.recordName)")
-                            print("AuthManager: Found existing UserProfile record: \(existingUserProfileRecord.recordID.recordName)")
+                            debugLog("AuthManager DEBUG: Found existing UserProfile. RecordName: \(existingUserProfileRecord.recordID.recordName)")
+                            debugLog("AuthManager: Found existing UserProfile record: \(existingUserProfileRecord.recordID.recordName)")
                             if let userProfile = UserProfile(from: existingUserProfileRecord) {
                                 self.currentUser = userProfile
                                 self.isLoggedIn = true
-                                print("AuthManager: UserProfile loaded: \(userProfile.displayName ?? userProfile.id)")
+                                debugLog("AuthManager: UserProfile loaded: \(userProfile.displayName ?? userProfile.id)")
                             } else {
-                                print("AuthManager: Failed to parse UserProfile from fetched record (ID: \(matchedRecordID.recordName)).")
+                                debugLog("AuthManager: Failed to parse UserProfile from fetched record (ID: \(matchedRecordID.recordName)).")
                                 self.errorMessage = sm.localizedString(forKey: "iCloudParseProfileErrorExisting")
                                 self.currentUser = nil; self.isLoggedIn = false
                             }
                             self.isLoading = false
                         case .failure(let recordFetchError):
-                            print("AuthManager: Matched UserProfile ID \(matchedRecordID.recordName), but failed to fetch record: \(recordFetchError.localizedDescription)")
+                            debugLog("AuthManager: Matched UserProfile ID \(matchedRecordID.recordName), but failed to fetch record: \(recordFetchError.localizedDescription)")
                             self.errorMessage = "\(sm.localizedString(forKey: "iCloudLoadProfileErrorFetch")): \(recordFetchError.localizedDescription)"
                             self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                         }
                     } else {
-                        print("AuthManager DEBUG: No UserProfile found. Attempting to create new one for iCloudUserRecordName: \(iCloudRecordName)")
-                        print("AuthManager: No UserProfile found for iCloud User \(iCloudRecordName). Creating new UserProfile.")
+                        debugLog("AuthManager DEBUG: No UserProfile found. Attempting to create new one for iCloudUserRecordName: \(iCloudRecordName)")
+                        debugLog("AuthManager: No UserProfile found for iCloud User \(iCloudRecordName). Creating new UserProfile.")
                         self.createUserProfile(linkedToICloudUserRecordName: iCloudRecordName)
                     }
                 case .failure(let queryError):
-                    print("AuthManager: Error querying UserProfile: \(queryError.localizedDescription)")
+                    debugLog("AuthManager: Error querying UserProfile: \(queryError.localizedDescription)")
                     self.errorMessage = "\(sm.localizedString(forKey: "iCloudLoadProfileErrorQuery")): \(queryError.localizedDescription)"
                     self.currentUser = nil; self.isLoggedIn = false; self.isLoading = false
                 }
@@ -213,7 +213,7 @@ class AuthManager: ObservableObject {
 
     private func createUserProfile(linkedToICloudUserRecordName iCloudRecordName: String) {
         // Removed guard check for the preference.
-        print("AuthManager: Creating new UserProfile linked to iCloud User \(iCloudRecordName)...")
+        debugLog("AuthManager: Creating new UserProfile linked to iCloud User \(iCloudRecordName)...")
         let sm = SettingsManager()
 
         let newUserProfile = UserProfile(
@@ -227,17 +227,17 @@ class AuthManager: ObservableObject {
         privateDB.save(newUserProfileCKRecord) { [weak self] (savedRecord, error) in
             DispatchQueue.main.async {
                 guard let self = self else { self?.isLoading = false; return }
-                print("AuthManager DEBUG: Save new UserProfile result. Saved Record ID: \(savedRecord?.recordID.recordName ?? "NIL"), Error: \(error?.localizedDescription ?? "No error")")
+                debugLog("AuthManager DEBUG: Save new UserProfile result. Saved Record ID: \(savedRecord?.recordID.recordName ?? "NIL"), Error: \(error?.localizedDescription ?? "No error")")
 
                 // Removed guard check for preference during async callback.
 
                 if let error = error {
-                    print("AuthManager: Error saving new UserProfile record: \(error.localizedDescription)")
+                    debugLog("AuthManager: Error saving new UserProfile record: \(error.localizedDescription)")
                     self.errorMessage = "\(sm.localizedString(forKey: "iCloudCreateProfileErrorSave")): \(error.localizedDescription)"
                     self.currentUser = nil; self.isLoggedIn = false
                     
                     if let ckError = error as? CKError, ckError.code == .constraintViolation {
-                        print("AuthManager: Constraint violation while creating UserProfile. Attempting to re-fetch.")
+                        debugLog("AuthManager: Constraint violation while creating UserProfile. Attempting to re-fetch.")
                         self.fetchOrCreateUserProfile(linkedToICloudUserRecordName: iCloudRecordName)
                         return
                     }
@@ -248,9 +248,9 @@ class AuthManager: ObservableObject {
                 if let record = savedRecord, let finalProfile = UserProfile(from: record) {
                     self.currentUser = finalProfile
                     self.isLoggedIn = true
-                    print("AuthManager: New UserProfile successfully created and loaded: \(finalProfile.displayName ?? finalProfile.id)")
+                    debugLog("AuthManager: New UserProfile successfully created and loaded: \(finalProfile.displayName ?? finalProfile.id)")
                 } else {
-                    print("AuthManager: Failed to create UserProfile from newly saved record, or save did not return a record.")
+                    debugLog("AuthManager: Failed to create UserProfile from newly saved record, or save did not return a record.")
                     self.errorMessage = sm.localizedString(forKey: "iCloudParseProfileErrorNew")
                     self.currentUser = nil; self.isLoggedIn = false
                 }
@@ -262,23 +262,23 @@ class AuthManager: ObservableObject {
     func saveCurrentUserProfile() {
         // Removed guard check for the preference.
         guard let currentUserProfile = self.currentUser else {
-            print("AuthManager: Cannot save profile. No current user.")
+            debugLog("AuthManager: Cannot save profile. No current user.")
             return
         }
         guard iCloudAccountStatus == .available else {
-            print("AuthManager: iCloud account not available. Cannot save profile to CloudKit.")
+            debugLog("AuthManager: iCloud account not available. Cannot save profile to CloudKit.")
             let sm = SettingsManager()
             self.errorMessage = sm.localizedString(forKey: "iCloudUnavailableCannotSave")
             return
         }
         guard self.iCloudUserActualRecordID != nil else {
-            print("AuthManager: Cannot save profile. iCloudUserActualRecordID is unknown.")
+            debugLog("AuthManager: Cannot save profile. iCloudUserActualRecordID is unknown.")
             let sm = SettingsManager()
             self.errorMessage = sm.localizedString(forKey: "iCloudUserIdentityIncomplete")
             return
         }
 
-        print("AuthManager: Saving current UserProfile (ID: \(currentUserProfile.id)) to CloudKit...")
+        debugLog("AuthManager: Saving current UserProfile (ID: \(currentUserProfile.id)) to CloudKit...")
         self.isLoading = true
         let sm = SettingsManager()
         
@@ -292,17 +292,17 @@ class AuthManager: ObservableObject {
 
                 var recordToSave: CKRecord
                 if let fetchError = error as? CKError, fetchError.code == .unknownItem {
-                    print("AuthManager: UserProfile record (ID: \(currentUserProfile.id)) not found during save. Creating new.")
+                    debugLog("AuthManager: UserProfile record (ID: \(currentUserProfile.id)) not found during save. Creating new.")
                     recordToSave = currentUserProfile.toCKRecord(existingRecord: nil)
                 } else if let error = error {
-                    print("AuthManager: Error fetching existing record before save: \(error.localizedDescription)")
+                    debugLog("AuthManager: Error fetching existing record before save: \(error.localizedDescription)")
                     self.errorMessage = "\(sm.localizedString(forKey: "iCloudSaveProfileErrorFetch")): \(error.localizedDescription)"
                     self.isLoading = false
                     return
                 } else if let fetchedRecord = existingRecord {
                      recordToSave = currentUserProfile.toCKRecord(existingRecord: fetchedRecord)
                 } else {
-                     print("AuthManager: Unexpected state: no error but no existing record found for ID \(currentUserProfile.id) during save. Creating new.")
+                     debugLog("AuthManager: Unexpected state: no error but no existing record found for ID \(currentUserProfile.id) during save. Creating new.")
                      recordToSave = currentUserProfile.toCKRecord(existingRecord: nil)
                 }
 
@@ -310,10 +310,10 @@ class AuthManager: ObservableObject {
                     DispatchQueue.main.async {
                         self.isLoading = false
                         if let saveError = saveError {
-                            print("AuthManager: Error saving UserProfile to CloudKit: \(saveError.localizedDescription)")
+                            debugLog("AuthManager: Error saving UserProfile to CloudKit: \(saveError.localizedDescription)")
                             self.errorMessage = "\(sm.localizedString(forKey: "iCloudSaveProfileErrorWrite")): \(saveError.localizedDescription)"
                         } else {
-                            print("AuthManager: UserProfile successfully saved to CloudKit.")
+                            debugLog("AuthManager: UserProfile successfully saved to CloudKit.")
                             if let sr = savedRecord, let updatedProfile = UserProfile(from: sr) {
                                 if self.currentUser?.recordChangeTag != updatedProfile.recordChangeTag || self.currentUser?.purchasedThemeIDs != updatedProfile.purchasedThemeIDs {
                                     self.currentUser = updatedProfile
@@ -327,13 +327,13 @@ class AuthManager: ObservableObject {
     }
 
     public func refreshAuthenticationState() {
-        print("AuthManager: Manually refreshing authentication state...")
+        debugLog("AuthManager: Manually refreshing authentication state...")
         self.iCloudUserActualRecordID = nil
         checkiCloudAccountStatusAndFetchProfile()
     }
 
     public func pseudoLogout() {
-        print("AuthManager: Performing pseudo-logout (clearing local app session)...")
+        debugLog("AuthManager: Performing pseudo-logout (clearing local app session)...")
         clearLocalUserSession(reason: "Pseudo-logout called.")
         let sm = SettingsManager()
         self.errorMessage = sm.localizedString(forKey: "loggedOutMessage")
@@ -342,27 +342,27 @@ class AuthManager: ObservableObject {
     func updateUserPurchasedThemes(themeIDs: Set<String>) {
         // Removed guard check for the preference.
         guard var profileToUpdate = self.currentUser else {
-            print("AuthManager: Cannot update purchased themes. No current user.")
+            debugLog("AuthManager: Cannot update purchased themes. No current user.")
             return
         }
         
         if profileToUpdate.purchasedThemeIDs != themeIDs {
             profileToUpdate.purchasedThemeIDs = themeIDs
             self.currentUser = profileToUpdate
-            print("AuthManager: User's purchased themes updated locally. Attempting to save to CloudKit.")
+            debugLog("AuthManager: User's purchased themes updated locally. Attempting to save to CloudKit.")
             saveCurrentUserProfile()
         } else {
-            print("AuthManager: No change in purchased themes. Skipping save.")
+            debugLog("AuthManager: No change in purchased themes. Skipping save.")
         }
     }
     
     //开发者按钮：重置账户付费ID
     func resetPurchasedThemesInCloud() {
-        print("AuthManager: Attempting to reset purchased themes in CloudKit...")
+        debugLog("AuthManager: Attempting to reset purchased themes in CloudKit...")
         
         // 1. 确保用户已登录
         guard self.isLoggedIn, let profileToUpdate = self.currentUser else {
-            print("AuthManager: Cannot reset themes. User is not logged in.")
+            debugLog("AuthManager: Cannot reset themes. User is not logged in.")
             return
         }
         
@@ -371,11 +371,11 @@ class AuthManager: ObservableObject {
         
         // 3. 检查是否有变化 (例如，如果已经是重置状态，则无需操作)
         if profileToUpdate.purchasedThemeIDs == freeThemeIDs {
-            print("AuthManager: Purchased themes are already in a reset state (only free themes). No action needed.")
+            debugLog("AuthManager: Purchased themes are already in a reset state (only free themes). No action needed.")
             return
         }
         
-        print("AuthManager: Resetting purchased themes to only include free themes: \(freeThemeIDs)")
+        debugLog("AuthManager: Resetting purchased themes to only include free themes: \(freeThemeIDs)")
         
         // 4. 更新本地 profile 并调用现有的保存逻辑
         // 我们复用 updateUserPurchasedThemes 方法，它内部包含了保存到 CloudKit 的逻辑

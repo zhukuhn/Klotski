@@ -28,7 +28,7 @@ struct KlotskiApp: App {
     // MARK: - Initialization
     init() {
 
-        print(String(repeating:"-", count:100))
+        debugLog(String(repeating:"-", count:100))
         let sm = SettingsManager()
         _settingsManager = StateObject(wrappedValue: sm)
 
@@ -48,8 +48,8 @@ struct KlotskiApp: App {
         
         _isGameCenterAuthenticated = State(initialValue: GKLocalPlayer.local.isAuthenticated)
 
-        print("All managers initialized in KlotskiApp init!")
-        print(String(repeating:"-", count:100) + "\n")
+        debugLog("All managers initialized in KlotskiApp init!")
+        debugLog(String(repeating:"-", count:100) + "\n")
     }
 
     var body: some Scene {
@@ -69,34 +69,33 @@ struct KlotskiApp: App {
                .onChange(of: scenePhase) { oldPhase, newPhase in
                    switch newPhase {
                    case .active:
-                        print(String(repeating:"-", count:100))
-                        print("App became active.")
-                        print()
+                        debugLog(String(repeating:"-", count:100))
+                        debugLog("App became active.")
                         Task { await StoreKitManager.shared.checkForCurrentEntitlements() }
                         authManager.refreshAuthenticationState()
                         authenticateGameCenterPlayer()
                         Task { await gameCenterManager.fetchAllLeaderboards() }
 
                    case .inactive:
-                       print("App became inactive.")
+                       debugLog("App became inactive.")
                        if gameManager.isGameActive && !gameManager.isGameWon && !gameManager.isPaused {
                            gameManager.pauseGame()
                            gameManager.saveGame(settings: settingsManager)
                        }
                    case .background:
-                       print("App entered background.")
+                       debugLog("App entered background.")
                        if gameManager.isGameActive && !gameManager.isGameWon {
                            if !gameManager.isPaused { gameManager.pauseGame() }
                            gameManager.saveGame(settings: settingsManager)
                        }
                    @unknown default:
-                       print("Unknown scene phase.")
+                       debugLog("Unknown scene phase.")
                    }
                }
                .onReceive(NotificationCenter.default.publisher(for: .GKPlayerAuthenticationDidChangeNotificationName)) { _ in
                     DispatchQueue.main.async {
                         let currentAuthStatus = GKLocalPlayer.local.isAuthenticated
-                        print("Game Center authentication changed. Current status: \(currentAuthStatus)")
+                        debugLog("Game Center authentication changed. Current status: \(currentAuthStatus)")
                         if self.isGameCenterAuthenticated != currentAuthStatus {
                             self.isGameCenterAuthenticated = currentAuthStatus
                             Task { await self.gameCenterManager.fetchAllLeaderboards() }
@@ -140,25 +139,25 @@ struct KlotskiApp: App {
     }
 
     func authenticateGameCenterPlayer() {
-        print("Attempting to authenticate Game Center player (current state: \(isGameCenterAuthenticated)).")
+        debugLog("Attempting to authenticate Game Center player (current state: \(isGameCenterAuthenticated)).")
         GKLocalPlayer.local.authenticateHandler = { viewController, error in
             DispatchQueue.main.async {
                 if viewController != nil {
-                    print("Game Center: Needs to present authentication view controller.")
+                    debugLog("Game Center: Needs to present authentication view controller.")
                 }
 
                 if let error = error {
-                    print("Game Center: Authentication error: \(error.localizedDescription)")
+                    debugLog("Game Center: Authentication error: \(error.localizedDescription)")
                     if self.isGameCenterAuthenticated != false {
                         self.isGameCenterAuthenticated = false
                     }
                 } else if GKLocalPlayer.local.isAuthenticated {
-                    print("Game Center: Player authenticated successfully: \(GKLocalPlayer.local.displayName)")
+                    debugLog("Game Center: Player authenticated successfully: \(GKLocalPlayer.local.displayName)")
                     if self.isGameCenterAuthenticated != true {
                         self.isGameCenterAuthenticated = true
                     }
                 } else {
-                    print("Game Center: Player authentication failed or unavailable.")
+                    debugLog("Game Center: Player authentication failed or unavailable.")
                     if self.isGameCenterAuthenticated != false {
                         self.isGameCenterAuthenticated = false
                     }

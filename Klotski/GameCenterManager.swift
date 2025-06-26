@@ -46,25 +46,25 @@ class GameCenterManager: ObservableObject {
     @Published var loadingError: Error? = nil
     
     init() {
-        print("GameCenterManager initialized.")
+        debugLog("GameCenterManager initialized.")
     }
     
     /// 从 Game Center 服务器异步获取所有为该应用配置的排行榜。
     func fetchAllLeaderboards() async {
         // 如果玩家未登录Game Center，则不执行任何操作。
         guard GKLocalPlayer.local.isAuthenticated else {
-            print("GameCenterManager: Player is not authenticated. Skipping leaderboard fetch.")
+            debugLog("GameCenterManager: Player is not authenticated. Skipping leaderboard fetch.")
             self.leaderboards = []
             return
         }
         
         // 避免重复加载
         guard !isLoading else {
-            print("GameCenterManager: Already loading leaderboards.")
+            debugLog("GameCenterManager: Already loading leaderboards.")
             return
         }
         
-        print("GameCenterManager: Starting to fetch all leaderboards from App Store Connect...")
+        debugLog("GameCenterManager: Starting to fetch all leaderboards from App Store Connect...")
         self.isLoading = true
         self.loadingError = nil
         
@@ -80,10 +80,10 @@ class GameCenterManager: ObservableObject {
             // 将 [GKLeaderboard] 映射到我们的 [LeaderboardInfo] 包装类型
             self.leaderboards = sortedLeaderboards.map { LeaderboardInfo(leaderboard: $0) }
             
-            print("GameCenterManager: Successfully fetched and wrapped \(self.leaderboards.count) leaderboards.")
+            debugLog("GameCenterManager: Successfully fetched and wrapped \(self.leaderboards.count) leaderboards.")
             
         } catch {
-            print("GameCenterManager: Failed to fetch leaderboards with error: \(error.localizedDescription)")
+            debugLog("GameCenterManager: Failed to fetch leaderboards with error: \(error.localizedDescription)")
             self.loadingError = error
         }
         

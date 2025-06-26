@@ -363,20 +363,20 @@ struct GameView: View {
     }
 
     private func setupGameView(){
-        print("GameView onAppear: isGameActive=\(gameManager.isGameActive), isPaused=\(gameManager.isPaused), isGameWon=\(gameManager.isGameWon)")
+        debugLog("GameView onAppear: isGameActive=\(gameManager.isGameActive), isPaused=\(gameManager.isPaused), isGameWon=\(gameManager.isGameWon)")
         if gameManager.isGameActive && !gameManager.isPaused && !gameManager.isGameWon {
             gameManager.resumeGame(settings: settingsManager)
         } else if gameManager.isGameActive && gameManager.isPaused && !gameManager.isGameWon {
-            print("GameView onAppear: Game is active but paused. Timer remains stopped.")
+            debugLog("GameView onAppear: Game is active but paused. Timer remains stopped.")
         } else {
             gameManager.stopTimer()
         }
     }
 
     private func cleanupGameView(){
-        print("GameView onDisappear: isGameActive=\(gameManager.isGameActive), isPaused=\(gameManager.isPaused), isGameWon=\(gameManager.isGameWon)")
+        debugLog("GameView onDisappear: isGameActive=\(gameManager.isGameActive), isPaused=\(gameManager.isPaused), isGameWon=\(gameManager.isGameWon)")
         if  !gameManager.isGameWon {
-            print("GameView onDisappear: Pausing and saving game.")
+            debugLog("GameView onDisappear: Pausing and saving game.")
             gameManager.pauseGame()
             gameManager.saveGame(settings: settingsManager)
         } else {

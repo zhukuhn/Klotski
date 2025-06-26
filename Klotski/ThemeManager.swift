@@ -57,13 +57,13 @@ class ThemeManager: ObservableObject {
            let candidateTheme = availableThemes.first(where: { $0.id == themeID }),
            initialPurchased.contains(candidateTheme.id) {
             self._currentTheme = Published(initialValue: candidateTheme)
-            print("ThemeManager init: Successfully restored last used theme '\(candidateTheme.name)' from UserDefaults.")
+            debugLog("ThemeManager init: Successfully restored last used theme '\(candidateTheme.name)' from UserDefaults.")
         } else {
             self._currentTheme = Published(initialValue: fallbackTheme)
-            print("ThemeManager init: Could not restore last theme or it's not purchased. Reverted to default.")
+            debugLog("ThemeManager init: Could not restore last theme or it's not purchased. Reverted to default.")
         }
         
-        print("ThemeManager init: Initial purchased themes count: \(initialPurchased.count).")
+        debugLog("ThemeManager init: Initial purchased themes count: \(initialPurchased.count).")
         
         setupBindings(authManager: authManager)
 
@@ -102,7 +102,7 @@ class ThemeManager: ObservableObject {
             .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main) // Add debounce to avoid rapid changes
             .sink { [weak self] userProfile in
                 guard let self = self else { return }
-                print("ThemeManager: Auth user profile changed. Rebuilding purchased themes list.")
+                debugLog("ThemeManager: Auth user profile changed. Rebuilding purchased themes list.")
                 self.rebuildPurchasedThemeIDsAndRefreshCurrentTheme(authManager: authManager)
             }
             .store(in: &cancellables)
@@ -114,13 +114,13 @@ class ThemeManager: ObservableObject {
         if isTrialActive { cancelTrial() }
         guard themes.contains(where: { $0.id == theme.id }) else { return }
         guard isThemePurchased(theme) else {
-            print("ThemeManager Warning: Attempted to set a non-purchased theme '\(theme.name)'.")
+            debugLog("ThemeManager Warning: Attempted to set a non-purchased theme '\(theme.name)'.")
             return
         }
         if currentTheme.id != theme.id {
             currentTheme = theme
             UserDefaults.standard.set(theme.id, forKey: currentThemeIDKey)
-            print("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
+            debugLog("ThemeManager: Current theme changed to '\(theme.name)' and saved to UserDefaults.")
         }
     }
 
@@ -133,7 +133,7 @@ class ThemeManager: ObservableObject {
     func fetchSKProducts() async {
         // --- FIX: Add a check to prevent redundant fetching ---
         guard storeKitProducts.isEmpty else {
-            print("ThemeManager: Products already fetched. Skipping.")
+            debugLog("ThemeManager: Products already fetched. Skipping.")
             return
         }
         let productIDs = Set(themes.compactMap { $0.isPremium ? $0.productID : nil })
@@ -182,7 +182,7 @@ class ThemeManager: ObservableObject {
         self.purchasedThemeIDs.formUnion(newlyProcessedAppThemeIDs)
 
         if self.purchasedThemeIDs != oldPurchasedIDs {
-            print("ThemeManager: New themes processed. Updating storage and iCloud.")
+            debugLog("ThemeManager: New themes processed. Updating storage and iCloud.")
             // --- FIX: Save the updated full list to local UserDefaults ---
             let currentPurchased = Array(self.purchasedThemeIDs)
             UserDefaults.standard.set(currentPurchased, forKey: locallyPurchasedThemeIDsKey)
@@ -219,20 +219,20 @@ class ThemeManager: ObservableObject {
             newPurchased.formUnion(cloudPurchases)
             
             if !newFromCloud.isEmpty {
-                print("ThemeManager: Found \(newFromCloud.count) new themes from iCloud. Saving them locally.")
+                debugLog("ThemeManager: Found \(newFromCloud.count) new themes from iCloud. Saving them locally.")
                 UserDefaults.standard.set(Array(newPurchased), forKey: locallyPurchasedThemeIDsKey)
             }
         }
         
         if self.purchasedThemeIDs != newPurchased {
-            print("ThemeManager: Purchased themes list has been rebuilt and updated.")
+            debugLog("ThemeManager: Purchased themes list has been rebuilt and updated.")
             self.purchasedThemeIDs = newPurchased
         }
 
         // --- FIX: After rebuilding the purchase list, ensure the current theme is still valid ---
         // This is crucial for handling cases like user logging out.
         if !isThemePurchased(self.currentTheme) {
-             print("ThemeManager: Current theme '\(self.currentTheme.name)' is no longer valid after sync. Reverting to default.")
+             debugLog("ThemeManager: Current theme '\(self.currentTheme.name)' is no longer valid after sync. Reverting to default.")
              let defaultTheme = themes.first { $0.id == "default" } ?? themes.first!
              setCurrentTheme(defaultTheme)
         }
@@ -244,13 +244,13 @@ class ThemeManager: ObservableObject {
         if showTrialEndedAlert {
             showTrialEndedAlert = false
             trialThemeForPurchase = nil
-            print("ThemeManager: Trial ended alert flag cleared.")
+            debugLog("ThemeManager: Trial ended alert flag cleared.")
         }
     }
 
     func startTrial(for theme: Theme, duration: TimeInterval = 10) {
         guard !isTrialActive else { return }
-        print("ThemeManager: Starting trial for theme '\(theme.name)' for \(duration) seconds.")
+        debugLog("ThemeManager: Starting trial for theme '\(theme.name)' for \(duration) seconds.")
         trialTimer?.invalidate()
         previousThemeID = self.currentTheme.id
         isTrialActive = true
@@ -265,7 +265,7 @@ class ThemeManager: ObservableObject {
     
     private func endTrial() {
         guard isTrialActive else { return }
-        print("ThemeManager: Trial ended.")
+        debugLog("ThemeManager: Trial ended.")
         trialTimer?.invalidate()
         trialTimer = nil
         
