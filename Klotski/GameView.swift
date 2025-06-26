@@ -77,7 +77,7 @@ struct GameView: View {
             if let level = gameManager.currentLevel {
                 let cellSize = calculateCellSize(geometry: geometry, boardWidthCells: level.boardWidth, boardHeightCells: level.boardHeight)
                 if cellSize <= 1 {
-                    Text("错误：棋盘尺寸计算异常。").foregroundColor(.red).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Text(settingsManager.localizedString(forKey: "boardSizeError")).foregroundColor(.red).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     HStack(){
                         currentInfoView
@@ -121,7 +121,7 @@ struct GameView: View {
                     Spacer()
                 }
             } else {
-                Text("未选择关卡。").foregroundColor(themeManager.currentTheme.textColor.color).padding()
+                Text(settingsManager.localizedString(forKey: "noLevelSelected")).foregroundColor(themeManager.currentTheme.textColor.color).padding()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -197,12 +197,14 @@ struct GameView: View {
 
     @ViewBuilder
     private var victoryOverlay: some View {
-        VStack(spacing: 20) {
+        VStack() {
+            Spacer()
             Text(settingsManager.localizedString(forKey: "victoryTitle"))
                 .font(.system(size: 36, weight: .bold, design: .rounded))
                 .foregroundColor(themeManager.currentTheme.sliderTextColor.color)
                 .padding(.bottom, 10)
             
+            Spacer()
             Button(action: {
                 SoundManager.playImpactHaptic(settings: settingsManager)
                 gameManager.isGameActive = false
@@ -214,8 +216,9 @@ struct GameView: View {
                     .padding(.vertical, 15)
             }
             .buttonStyle(themeFactory.victoryButtonStyle())
+            Spacer()
         }
-        .padding(EdgeInsets(top: 60, leading: 30, bottom: 60, trailing: 30))
+        .padding(EdgeInsets(top: 50, leading: 20, bottom: 50, trailing: 20))
         .background(themeManager.currentTheme.textColor.color.opacity(0.8))
         .cornerRadius(20)
         .shadow(color: .black.opacity(0.3), radius: 10, x:0, y:5)
@@ -270,7 +273,7 @@ struct GameView: View {
                 Image(systemName: "backward.circle.fill").resizable().scaledToFit() 
             }
             .frame(width: controlButtonSize, height: controlButtonSize)
-            .foregroundColor(themeManager.currentTheme.textColor.color) // 使用 textColor
+            .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用 textColor
             .disabled(gameManager.currentLevelIndex == nil || gameManager.currentLevelIndex == 0)
             
             Button(action: { 
@@ -284,7 +287,7 @@ struct GameView: View {
                 Image(systemName: gameManager.isPaused ? "play.circle.fill" : "pause.circle.fill").resizable().scaledToFit() 
             }
             .frame(width: controlButtonSize * 2, height: controlButtonSize * 2)
-            .foregroundColor(themeManager.currentTheme.textColor.color) // 使用 textColor
+            .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用 textColor
             .disabled(gameManager.isGameWon)
 
             Button(action: { 
@@ -296,7 +299,7 @@ struct GameView: View {
                 Image(systemName: "forward.circle.fill").resizable().scaledToFit() 
             }
             .frame(width: controlButtonSize, height: controlButtonSize)
-            .foregroundColor(themeManager.currentTheme.textColor.color) // 使用 textColor
+            .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用 textColor
             .disabled(gameManager.currentLevelIndex == nil || gameManager.currentLevelIndex == gameManager.levels.count - 1)
         }.padding(.top, 20)
     }
@@ -314,7 +317,7 @@ struct GameView: View {
                 Image(systemName: "house.circle.fill").resizable().scaledToFit()
             }
             .frame(width: controlButtonSize, height: controlButtonSize)
-            .foregroundColor(themeManager.currentTheme.textColor.color) // 使用 textColor
+            .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用 textColor
             
             Button(action: { 
                 SoundManager.playImpactHaptic(settings: settingsManager)
@@ -325,7 +328,7 @@ struct GameView: View {
                 Image(systemName: "arrow.clockwise.circle.fill").resizable().scaledToFit()
             }
             .frame(width: controlButtonSize+10, height: controlButtonSize+10)
-            .foregroundColor(themeManager.currentTheme.textColor.color) // 使用 textColor
+            .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用 textColor
 
             Button(action: {
                 SoundManager.playImpactHaptic(settings: settingsManager)
@@ -338,7 +341,7 @@ struct GameView: View {
                 Image(systemName: "list.bullet.circle.fill").resizable().scaledToFit()
             }
             .frame(width: controlButtonSize, height: controlButtonSize)
-            .foregroundColor(themeManager.currentTheme.textColor.color) // 使用 textColor
+            .foregroundColor(themeManager.currentTheme.sliderColor.color) // 使用 textColor
         }.padding(.top, 20)
     }
     

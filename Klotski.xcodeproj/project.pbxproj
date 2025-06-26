@@ -11,7 +11,6 @@
 		F77484D92DDF06FC00BD61B6 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = F77484D82DDF06FC00BD61B6 /* FirebaseAuth */; };
 		F77484DB2DDF06FC00BD61B6 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = F77484DA2DDF06FC00BD61B6 /* FirebaseFirestore */; };
 		F7A0957A2DF327CA003BA686 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F7A095792DF327C9003BA686 /* StoreKit.framework */; };
-		F7A095822DF34F0F003BA686 /* KlotskiStore.storekit in Resources */ = {isa = PBXBuildFile; fileRef = F7A095812DF34F0F003BA686 /* KlotskiStore.storekit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,7 +35,6 @@
 		F774C3E92DD376FC00850422 /* KlotskiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KlotskiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F774C3F32DD376FC00850422 /* KlotskiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KlotskiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7A095792DF327C9003BA686 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
-		F7A095812DF34F0F003BA686 /* KlotskiStore.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = KlotskiStore.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -89,7 +87,6 @@
 		F774C3D02DD376FA00850422 = {
 			isa = PBXGroup;
 			children = (
-				F7A095812DF34F0F003BA686 /* KlotskiStore.storekit */,
 				F774C3DB2DD376FA00850422 /* Klotski */,
 				F774C3EC2DD376FC00850422 /* KlotskiTests */,
 				F774C3F62DD376FC00850422 /* KlotskiUITests */,
@@ -242,7 +239,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F7A095822DF34F0F003BA686 /* KlotskiStore.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -431,12 +427,13 @@
 				DEVELOPMENT_TEAM = ZB293ZXGKV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "华容道";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -462,12 +459,13 @@
 				DEVELOPMENT_TEAM = ZB293ZXGKV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "华容道";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

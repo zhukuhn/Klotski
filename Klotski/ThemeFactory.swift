@@ -92,28 +92,28 @@ struct Theme: Identifiable, Codable, Equatable {
 struct AppThemeRepository {
     // --- 修改：更新所有主题定义以包含 textColor ---
     static let allThemes: [Theme] = [
-        Theme(id: "default", name: "默认浅色", isPremium: false, productID: nil,
+        Theme(id: "default", name: "经典浅色", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .white),
               sliderColor: CodableColor(color: .blue), sliderTextColor: CodableColor(color: .white),
               textColor: CodableColor(color: Color(hex: "#333333")), // 深灰色文本
               boardBackgroundColor: CodableColor(color: Color(white: 0.9)), boardGridLineColor: CodableColor(color: Color(white: 0.7)),
               fontName: nil, colorScheme: .light),
 
-        Theme(id: "dark", name: "深邃夜空", isPremium: false, productID: nil,
+        Theme(id: "dark", name: "深邃暗黑", isPremium: false, productID: nil,
               backgroundColor: CodableColor(color: .black),
               sliderColor: CodableColor(color: .orange), sliderTextColor: CodableColor(color: .black),
               textColor: CodableColor(color: .orange), // 橙色文本
               boardBackgroundColor: CodableColor(color: Color(white: 0.2)), boardGridLineColor: CodableColor(color: Color(white: 0.4)),
               fontName: nil, colorScheme: .dark),
 
-        Theme(id: "forest", name: "森林绿意", isPremium: false,  productID: nil,
+        Theme(id: "forest", name: "清新绿意", isPremium: true,  price:1, productID: "com.shenlan.Klotski.theme.green",
               backgroundColor: CodableColor(color: Color(red: 161/255, green: 193/255, blue: 129/255)),
               sliderColor: CodableColor(color: Color(red: 103/255, green: 148/255, blue: 54/255)), sliderTextColor: CodableColor(color: .white),
               textColor: CodableColor(color: Color(red: 45/255, green: 80/255, blue: 20/255)), // 深绿色文本
               boardBackgroundColor: CodableColor(color: Color(red: 200/255, green: 220/255, blue: 180/255)), boardGridLineColor: CodableColor(color: Color(red: 120/255, green: 150/255, blue: 100/255)),
               fontName: "Georgia-Bold", colorScheme: .light),
         
-        Theme(id: "auroraGlass", name: "极光玻璃", isPremium: true, price:1, productID: "com.shenlan.Klotski.theme.auroraGlass",
+        Theme(id: "auroraGlass", name: "琉璃月色", isPremium: true, price:2, productID: "com.shenlan.Klotski.theme.auroraGlass",
               backgroundColor: CodableColor(color: Color(red: 20/255, green: 20/255, blue: 40/255)), // 深紫色基底
               sliderColor: CodableColor(color: Color(red: 140/255, green: 160/255, blue: 200/255).opacity(0.5)), // 半透明的柔和蓝色
               sliderTextColor: CodableColor(color: .white),
@@ -125,27 +125,29 @@ struct AppThemeRepository {
               fontName: "Georgia-Bold",
               colorScheme: .dark),
 
-        Theme(id: "woodcut", name: "拟物木刻", isPremium: true, price:1, productID: "com.shenlan.Klotski.theme.woodcut",
+        Theme(id: "woodcut", name: "沉香木韵", isPremium: true, price:2, productID: "com.shenlan.Klotski.theme.woodcut",
               backgroundColor: CodableColor(color: Color(hex: "#6F4E37")), // 深木色
               sliderColor: CodableColor(color: Color(hex: "#C4A484")),     // 浅木色 (棋子)
               sliderTextColor: CodableColor(color: Color(hex: "#4B382A")), // 雕刻文字色
               textColor: CodableColor(color: Color(hex: "#F3EAD3")), // 亚麻色文本
               boardBackgroundColor: CodableColor(color: Color(hex: "#A07855")), // 棋盘木板色
               boardGridLineColor: CodableColor(color: .clear),            // 无网格线
+              sliderContent: .none,
               fontName: "Georgia-Bold",
               colorScheme: .light),
               
-        Theme(id: "memphisPop", name: "孟菲斯波普", isPremium: true, price:1, productID: "com.shenlan.Klotski.theme.memphisPop",
+        Theme(id: "memphisPop", name: "孟菲斯波普", isPremium: true, price:2, productID: "com.shenlan.Klotski.theme.memphisPop",
               backgroundColor: CodableColor(color: Color(hex: "#FDF0D5")), // 浅米色
               sliderColor: CodableColor(color: Color(hex: "#003049")),     // 深海军蓝 (棋子)
               sliderTextColor: CodableColor(color: .white),
               textColor: CodableColor(color: Color(hex: "#C1121F")), // 亮红色文本
               boardBackgroundColor: CodableColor(color: Color(hex: "#C1121F").opacity(0.1)), // 红色棋盘底
               boardGridLineColor: CodableColor(color: Color(hex: "#F77F00").opacity(0.5)),   // 橙色网格
+              //sliderContent: .none,
               fontName: "Georgia-Bold",
               colorScheme: .light),
         
-        Theme(id: "mechanism", name: "层岩机关", isPremium: true, price:3, productID: "com.shenlan.Klotski.theme.mechanism",
+        Theme(id: "mechanism", name: "热烈砂岩", isPremium: true, price:3, productID: "com.shenlan.Klotski.theme.mechanism",
               backgroundColor: CodableColor(color: Color(red: 100/255, green: 60/255, blue: 40/255)),    // 后备背景色：深暖棕4A3F3C
               sliderColor: CodableColor(color: Color(hex: "#7B6F6A")),        // 棋子颜色：暖棕褐色
               sliderTextColor: CodableColor(color: Color(hex: "#D9D1CB")),    // 文字颜色：柔和米灰
@@ -513,15 +515,17 @@ struct MemphisPopThemeRenderer: ThemeableViewFactory {
     func boardBackground(widthCells: Int, heightCells: Int, cellSize: CGFloat) -> any View {
         RoundedRectangle(cornerRadius: 0).fill(theme.boardBackgroundColor.color)
     }
-    
     func pieceView(for piece: Piece, cellSize: CGFloat, isDragging: Bool) -> any View {
         let pieceShape = Rectangle()
         ZStack {
             pieceShape.fill(theme.sliderColor.color)
             pieceShape.stroke(Color.black, lineWidth: 4)
-            Text(piece.type.displayName)
+            if(theme.sliderContent != .none){
+                Text(piece.type.displayName)
                 .font(.custom(theme.fontName!, size: calculateFontSize(for: piece, cellSize: cellSize)))
                 .foregroundColor(theme.sliderTextColor.color)
+            }
+            
         }
     }
     

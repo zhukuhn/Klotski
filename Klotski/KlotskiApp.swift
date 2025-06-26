@@ -15,6 +15,7 @@ struct KlotskiApp: App {
     @StateObject var authManager: AuthManager
     @StateObject var themeManager: ThemeManager
     @StateObject var gameManager: GameManager
+    @StateObject var gameCenterManager: GameCenterManager
 
     @State private var showStoreErrorAlert = false
 
@@ -40,6 +41,9 @@ struct KlotskiApp: App {
         let gm = GameManager()
         _gameManager = StateObject(wrappedValue: gm)
         
+        let gcm = GameCenterManager()
+        _gameCenterManager = StateObject(wrappedValue: gcm)
+        
         _ = StoreKitManager.shared
         
         _isGameCenterAuthenticated = State(initialValue: GKLocalPlayer.local.isAuthenticated)
@@ -55,6 +59,7 @@ struct KlotskiApp: App {
                .environmentObject(authManager)
                .environmentObject(themeManager)
                .environmentObject(gameManager)
+               .environmentObject(gameCenterManager)
                .environment(\.isGameCenterAuthenticated, $isGameCenterAuthenticated)
                .onAppear {
                    gameManager.setupDependencies(authManager: authManager, settingsManager: settingsManager)
@@ -70,6 +75,7 @@ struct KlotskiApp: App {
                         Task { await StoreKitManager.shared.checkForCurrentEntitlements() }
                         authManager.refreshAuthenticationState()
                         authenticateGameCenterPlayer()
+                        Task { await gameCenterManager.fetchAllLeaderboards() }
 
                    case .inactive:
                        print("App became inactive.")
@@ -93,6 +99,7 @@ struct KlotskiApp: App {
                         print("Game Center authentication changed. Current status: \(currentAuthStatus)")
                         if self.isGameCenterAuthenticated != currentAuthStatus {
                             self.isGameCenterAuthenticated = currentAuthStatus
+                            Task { await self.gameCenterManager.fetchAllLeaderboards() }
                         }
                     }
                }

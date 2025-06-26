@@ -19,38 +19,8 @@ class GameManager: ObservableObject {
     @Published var currentLevelIndex: Int?
     @Published var pieces: [Piece] = []
     @Published var gameBoard: [[Int?]] = []
-    
-    static let classicLevel = Level(
-        id: "classic_hdml", name: "横刀立马", boardWidth: 4, boardHeight: 5,
-        piecePlacements: [
-            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0), PiecePlacement(id: 2, type: .guanYuH, initialX: 1, initialY: 2),
-            PiecePlacement(id: 3, type: .zhangFeiV, initialX: 0, initialY: 0), PiecePlacement(id: 4, type: .zhaoYunV, initialX: 3, initialY: 0),
-            PiecePlacement(id: 5, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 6, type: .huangZhongV, initialX: 3, initialY: 2),
-            PiecePlacement(id: 7, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 8, type: .soldier, initialX: 2, initialY: 3),
-            PiecePlacement(id: 9, type: .soldier, initialX: 0, initialY: 4), PiecePlacement(id: 10, type: .soldier, initialX: 3, initialY: 4)
-        ], targetPieceId: 1, targetX: 1, targetY: 3
-    )
-    static let easyExitLevel = Level(
-        id: "easy_exit", name: "兵临城下", boardWidth: 4, boardHeight: 5,
-        piecePlacements: [
-            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),
-            PiecePlacement(id: 2, type: .soldier, initialX: 0, initialY: 0), PiecePlacement(id: 3, type: .soldier, initialX: 3, initialY: 0),
-            PiecePlacement(id: 4, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 5, type: .soldier, initialX: 2, initialY: 2),
-            PiecePlacement(id: 6, type: .guanYuH, initialX: 1, initialY: 3)
-        ], targetPieceId: 1, targetX: 1, targetY: 3
-    )
-    static let verticalChallengeLevel = Level(
-        id: "vertical_challenge", name: "层峦叠嶂", boardWidth: 4, boardHeight: 5,
-        piecePlacements: [
-            PiecePlacement(id: 1, type: .caoCao, initialX: 1, initialY: 0),
-            PiecePlacement(id: 2, type: .zhangFeiV, initialX: 0, initialY: 0), PiecePlacement(id: 3, type: .zhaoYunV, initialX: 3, initialY: 0),
-            PiecePlacement(id: 4, type: .maChaoV, initialX: 0, initialY: 2), PiecePlacement(id: 5, type: .huangZhongV, initialX: 3, initialY: 2),
-            PiecePlacement(id: 6, type: .soldier, initialX: 1, initialY: 2), PiecePlacement(id: 7, type: .soldier, initialX: 2, initialY: 2),
-            PiecePlacement(id: 8, type: .soldier, initialX: 1, initialY: 3), PiecePlacement(id: 9, type: .soldier, initialX: 2, initialY: 3),
-        ], targetPieceId: 1, targetX: 1, targetY: 3
-    )
-    
-    @Published var levels: [Level] = [classicLevel, easyExitLevel, verticalChallengeLevel]
+        
+    @Published var levels: [Level] = []
     
     @Published var moves: Int = 0
     @Published var timeElapsed: TimeInterval = 0
@@ -61,7 +31,7 @@ class GameManager: ObservableObject {
 
     private var timerSubscription: Cancellable?
     private var lastTimerFireDate: Date?
-    private let timerInterval: TimeInterval = 0.01
+    private let timerInterval: TimeInterval = 0.1
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -514,7 +484,36 @@ class GameManager: ObservableObject {
             print("CloudKit Sync: Error fetching all best scores: \(error.localizedDescription)")
         }
     }
-    
+
+/// 新增的测试函数，用于获取排行榜信息以供调试
+    func testFetchLeaderboard(leaderboardID: String) {
+        Task {
+            do {
+                let leaderboards = try await GKLeaderboard.loadLeaderboards(IDs: [leaderboardID])
+                
+                guard let leaderboard = leaderboards.first else {
+                    print(">>> DEBUG: 无法加载排行榜 '\(leaderboardID)'。请检查 App Store Connect 中的 ID 是否完全一致，并且状态为'实时'。")
+                    return
+                }
+                
+                print(">>> DEBUG: 成功加载排行榜 '\(leaderboard.title)'。正在获取分数...")
+                // 这是最终修正的地方：正确解构返回的三个值的元组
+                let (_, entries, _) = try await leaderboard.loadEntries(for: .global, timeScope: .allTime, range: NSRange(location: 1, length: 10))
+                
+                if entries.isEmpty {
+                    print(">>> DEBUG: 排行榜 '\(leaderboardID)' 中没有任何分数。这可能意味着分数提交失败，或者还在等待苹果服务器处理。")
+                } else {
+                    print("🎉 >>> DEBUG: 成功获取到 \(entries.count) 条分数！这说明提交和后台都没有问题！")
+                    for entry in entries {
+                        print("    - 玩家: \(entry.player.displayName), 分数: \(entry.score)")
+                    }
+                }
+            } catch {
+                print(">>> DEBUG: 获取排行榜 '\(leaderboardID)' 时发生错误: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func submitScoreToLeaderboard(levelID: String, moves: Int, time: TimeInterval) {
         guard GKLocalPlayer.local.isAuthenticated else {
             print("Game Center: Player not authenticated. Cannot submit score.")
@@ -525,27 +524,31 @@ class GameManager: ObservableObject {
         let timeLeaderboardID = "\(levelID)_time"
 
         print("Game Center: Attempting to submit to \(movesLeaderboardID) - Moves: \(moves)")
-        GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { error in
+        GKLeaderboard.submitScore(moves, context: 0, player: GKLocalPlayer.local, leaderboardIDs: [movesLeaderboardID]) { [weak self] error in
+            guard let self = self else { return }
             if let error = error {
                 print("Game Center: Error submitting moves score to \(movesLeaderboardID): \(error.localizedDescription)")
             } else {
                 print("Game Center: Successfully submitted moves score (\(moves)) to \(movesLeaderboardID).")
+                self.testFetchLeaderboard(leaderboardID: movesLeaderboardID)
             }
         }
 
         let timeInCentiseconds = Int64(time * 100)
         print("Game Center: Attempting to submit to \(timeLeaderboardID) - Time (centiseconds): \(timeInCentiseconds)")
-        GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { error in
+        GKLeaderboard.submitScore(Int(timeInCentiseconds), context: 0, player: GKLocalPlayer.local, leaderboardIDs: [timeLeaderboardID]) { [weak self] error in
+            guard let self = self else { return }
             if let error = error {
                 print("Game Center: Error submitting time score to \(timeLeaderboardID): \(error.localizedDescription)")
             } else {
                 print("Game Center: Successfully submitted time score (\(timeInCentiseconds)cs) to \(timeLeaderboardID).")
+                self.testFetchLeaderboard(leaderboardID: movesLeaderboardID)
             }
         }
     }
 
     @MainActor
-    func syncAllLocalBestScoresToGameCenter() {
+    func syncAllLocalBestScoresToGameCenter() async {
         guard GKLocalPlayer.local.isAuthenticated else {
             print("Game Center: Player not authenticated. Cannot sync all local best scores.")
             return
