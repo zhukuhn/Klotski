@@ -1,0 +1,52 @@
+Review Environment
+
+Submission ID: 0ace8571-299e-4408-bf9b-89e387db29cd
+Review date: June 27, 2025
+Version reviewed: 1.0
+
+
+Guideline 2.1 - Performance - App Completeness
+
+Issue Description
+
+The app exhibited one or more bugs that would negatively impact users.
+
+Bug description: The in-app purchase items are greyed out.
+
+Review device details:
+
+- Device type: iPad Air (5th generation) 
+- OS version: iPadOS 18.5
+
+Next Steps
+
+Test the app on supported devices to identify and resolve bugs and stability issues before submitting for review.
+
+If the bug cannot be reproduced, try the following:
+
+- For new apps, uninstall all previous versions of the app from a device, then install and follow the steps to reproduce.
+- For app updates, install the new version as an update to the previous version, then follow the steps to reproduce.
+
+Resources
+
+- For information about testing apps and preparing them for review, see Testing a Release Build.
+- To learn about troubleshooting networking issues, see Networking Overview.
+
+Guideline 3.1.1 - Business - Payments - In-App Purchase
+
+
+The app offers in-app purchases that can be restored but does not include a "Restore Purchases" feature to allow users to restore the previously purchased in-app purchases.
+
+Next Steps
+
+To restore previously purchased in-app purchase products, it would be appropriate to provide a distinct "Restore" button and initiate the restore process when the "Restore" button is tapped by the user. Note that automatically restoring purchases on launch will not resolve this issue.
+
+Resources
+
+- Review documentation for the In-App Purchase API.
+- Learn more about in-app purchase requirements in guideline 3.1.1.
+Support
+
+- Reply to this message in your preferred language if you need assistance. If you need additional support, use the Contact Us module.
+- Consult with fellow developers and Apple engineers on the Apple Developer Forums.
+- Provide feedback on this message and your review experience by completing a short survey.

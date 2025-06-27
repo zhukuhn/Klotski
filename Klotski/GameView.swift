@@ -62,10 +62,7 @@ struct GameView: View {
             .onAppear(perform: setupGameView)
             .onDisappear(perform: cleanupGameView)
             .navigationDestination(isPresented: $navigateToLevelSelection) {
-                LevelSelectionView(
-                    isPresentedAsPanel: false,
-                    onLevelSelected: { self.navigateToLevelSelection = false }
-                )
+                LevelSelectionView(showLevelSelection: $navigateToLevelSelection)
             }
         }
         
@@ -74,6 +71,7 @@ struct GameView: View {
     @ViewBuilder
     private func gameAreaView(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
+            Spacer()
             if let level = gameManager.currentLevel {
                 let cellSize = calculateCellSize(geometry: geometry, boardWidthCells: level.boardWidth, boardHeightCells: level.boardHeight)
                 if cellSize <= 1 {
@@ -123,6 +121,7 @@ struct GameView: View {
             } else {
                 Text(settingsManager.localizedString(forKey: "noLevelSelected")).foregroundColor(themeManager.currentTheme.textColor.color).padding()
             }
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

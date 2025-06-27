@@ -67,11 +67,6 @@ class ThemeManager: ObservableObject {
         
         setupBindings(authManager: authManager)
 
-        Task {
-            if self.storeKitProducts.isEmpty {
-                await fetchSKProducts()
-            }
-        }
     }
     
     private func setupBindings(authManager: AuthManager) {

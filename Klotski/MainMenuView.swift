@@ -94,7 +94,7 @@ struct MainMenuView: View {
             .ignoresSafeArea(edges: .bottom)
             .navigationDestination(isPresented: $gameManager.isGameActive) { GameView() }
             .navigationDestination(isPresented: $navigateToLeaderboardView) { LeaderboardView() }
-            .navigationDestination(isPresented: $showLevelSelection) { LevelSelectionView() }
+            .navigationDestination(isPresented: $showLevelSelection) { LevelSelectionView(showLevelSelection: $showLevelSelection) }
             .navigationDestination(isPresented: $showThemeSelection) { ThemeSelectionView() }
             .navigationDestination(isPresented: $showSettings) { SettingsView() }
         }
@@ -125,11 +125,14 @@ struct LevelSelectionView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var settingsManager: SettingsManager
 
+    @Binding var showLevelSelection: Bool
+
     var isPresentedAsPanel: Bool
     var dismissPanelAction: (() -> Void)?
     var onLevelSelected: (() -> Void)?
 
-    init(isPresentedAsPanel: Bool = false, dismissPanelAction: (() -> Void)? = nil, onLevelSelected: (() -> Void)? = nil) {
+    init(showLevelSelection: Binding<Bool>, isPresentedAsPanel: Bool = false, dismissPanelAction: (() -> Void)? = nil, onLevelSelected: (() -> Void)? = nil) {
+        self._showLevelSelection = showLevelSelection
         self.isPresentedAsPanel = isPresentedAsPanel
         self.dismissPanelAction = dismissPanelAction
         self.onLevelSelected = onLevelSelected
@@ -266,6 +269,7 @@ struct LevelSelectionView: View {
     private func levelRow(for level: Level) -> some View {
         Button(action: {
             SoundManager.playImpactHaptic(settings: settingsManager)
+            self.showLevelSelection = false
             gameManager.startGame(level: level, settings: settingsManager, isNewSession: true)
             dismissPanelAction?()
             onLevelSelected?()
@@ -302,6 +306,7 @@ struct ThemeSelectionView: View {
     @EnvironmentObject var authManager: AuthManager
     
     @State private var themeForTrialConfirmation: Theme?
+    @State private var showiCloudLoginAlert = false
 
     private func storeKitProduct(for theme: Theme) -> Product? {
         guard theme.isPremium, let productID = theme.productID else { return nil }
@@ -324,7 +329,7 @@ struct ThemeSelectionView: View {
                  Button(action: {
                     SoundManager.playImpactHaptic(settings: settingsManager)
                     guard authManager.isLoggedIn else {
-                        themeManager.storeKitError = .userCannotMakePayments
+                        showiCloudLoginAlert = true
                         return
                     }
                     Task { await themeManager.restoreThemePurchases(authManager:authManager) }
@@ -340,7 +345,7 @@ struct ThemeSelectionView: View {
                 }
                .listRowBackground(themeManager.currentTheme.backgroundColor.color.adjusted(by: themeManager.currentTheme.swiftUIScheme == .dark ? 0.1 : -0.05))
                .foregroundColor(authManager.isLoggedIn ? themeManager.currentTheme.textColor.color : .gray)
-               .disabled(!authManager.isLoggedIn || themeManager.purchasingThemeID != nil)
+               .disabled( themeManager.purchasingThemeID != nil)
             }
         }
         .navigationTitle(settingsManager.localizedString(forKey: "themes"))
@@ -363,6 +368,24 @@ struct ThemeSelectionView: View {
         } message: { theme in
             Text(String(format: settingsManager.localizedString(forKey: "startTrialMessage"), theme.name))
         }
+        .task {
+            // 这个 .task 修饰符会在 ThemeSelectionView 出现时自动运行。
+            // 这是处理异步数据加载最现代、最可靠的方式。
+            if themeManager.storeKitProducts.isEmpty {
+                // 如果产品列表为空，则触发加载。
+                await themeManager.fetchSKProducts()
+            }
+        }
+        .alert(
+            settingsManager.localizedString(forKey: "iCloudEnableInstructionTitle"),
+            isPresented: $showiCloudLoginAlert,
+            actions: {
+                Button(settingsManager.localizedString(forKey: "confirm")) { }
+            },
+            message: {
+                Text(settingsManager.localizedString(forKey: "iCloudEnableInstructionMessage"))
+            }
+        )
     }
 
     @ViewBuilder
@@ -370,7 +393,7 @@ struct ThemeSelectionView: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(settingsManager.localizedString(forKey: theme.id))
-                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 18) : .headline)
+                   .font(themeManager.currentTheme.fontName != nil ? .custom(themeManager.currentTheme.fontName!, size: 16) : .headline)
                 HStack {
                     Circle().fill(theme.backgroundColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
                     Circle().fill(theme.sliderColor.color).frame(width: 15, height: 15).overlay(Circle().stroke(Color.gray, lineWidth: 0.5))
@@ -421,7 +444,7 @@ struct ThemeSelectionView: View {
                 } else if theme.isPremium {
                     let product = storeKitProduct(for: theme)
                     
-                    HStack(spacing: 12){
+                    HStack(spacing: 8){
                         Button(action: {
                             SoundManager.playImpactHaptic(settings: settingsManager)
                             self.themeForTrialConfirmation = theme
@@ -433,12 +456,12 @@ struct ThemeSelectionView: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(.orange)
-                        .disabled(!authManager.isLoggedIn || themeManager.isTrialActive || themeManager.purchasingThemeID != nil)
+                        .disabled( themeManager.isTrialActive || themeManager.purchasingThemeID != nil)
 
                         Button(action: {
                             SoundManager.playImpactHaptic(settings: settingsManager)
                             guard authManager.isLoggedIn else {
-                                themeManager.storeKitError = .userCannotMakePayments
+                                showiCloudLoginAlert = true
                                 return
                             }
                             Task {
@@ -446,8 +469,13 @@ struct ThemeSelectionView: View {
                             }
                         }) {
                             ZStack {
-                                Text(product?.displayPrice ?? "...")
-                                    .opacity(themeManager.purchasingThemeID == theme.id ? 0 : 1)
+                                if let product = product {
+                                    Text(product.displayPrice)
+                                        .opacity(themeManager.purchasingThemeID == theme.id ? 0 : 1)
+                                } else {
+                                    // 如果产品信息还未加载，也显示一个加载指示器
+                                    ProgressView()
+                                }
                                 if themeManager.purchasingThemeID == theme.id {
                                     ProgressView()
                                 }
@@ -456,7 +484,7 @@ struct ThemeSelectionView: View {
                         }
                        .buttonStyle(.borderedProminent)
                        .tint(.pink)
-                       .disabled(!authManager.isLoggedIn || themeManager.isTrialActive || themeManager.purchasingThemeID != nil || product == nil)
+                       .disabled( themeManager.isTrialActive || themeManager.purchasingThemeID != nil || product == nil)
                     }
                     .fixedSize(horizontal: true, vertical: false)
                     
@@ -557,29 +585,6 @@ struct LeaderboardView: View {
         .padding(.vertical, 20)
     }
     
-    // private var leaderboardListView: some View {
-    //     List(gameCenterManager.leaderboards) { leaderboardInfo in
-    //         Button(action: {
-    //             // 点击按钮时，直接设置我们的 item 状态变量来触发弹窗。
-    //             self.selectedLeaderboardForSheet = leaderboardInfo
-    //         }) {
-    //             HStack {
-    //                 VStack(alignment: .leading) {
-    //                     Text(leaderboardInfo.title)
-    //                         .font(.headline)
-    //                         .foregroundColor(themeManager.currentTheme.textColor.color)
-    //                 }
-    //                 Spacer()
-    //                 Image(systemName: "chevron.right")
-    //                     .foregroundColor(.secondary.opacity(0.5))
-    //             }
-    //             .padding(.vertical, 8)
-    //         }
-    //         .listRowBackground(themeManager.currentTheme.backgroundColor.color.adjusted(by: themeManager.currentTheme.swiftUIScheme == .dark ? 0.1 : -0.05))
-    //     }
-    //     .listStyle(.insetGrouped)
-    //     .scrollContentBackground(.hidden)
-    // }
     private var leaderboardListView: some View {
         List {
             Section(
