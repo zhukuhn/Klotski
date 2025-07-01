@@ -68,7 +68,6 @@ class ThemeManager: ObservableObject {
         setupBindings(authManager: authManager)
 
     }
-    
     private func setupBindings(authManager: AuthManager) {
         // This subscription handles successful purchases/restores from StoreKitManager
         storeKitManager.purchaseOrRestoreSuccessfulPublisher

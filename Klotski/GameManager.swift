@@ -249,6 +249,16 @@ class GameManager: ObservableObject {
             updateAndSyncBestScore(levelId: level.id, currentMoves: moves, currentTime: timeElapsed)
             submitScoreToLeaderboard(levelID: level.id, moves: moves, time: timeElapsed)
             
+            // --- 新增调试代码 ---
+            // 在提交分数后，立即验证分数是否存在
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2秒
+                let timeInCentiseconds = Int(self.timeElapsed * 100)
+                await self.verifyScoreSubmission(leaderboardID: "\(level.id)_moves", submittedScore: self.moves)
+                await self.verifyScoreSubmission(leaderboardID: "\(level.id)_time", submittedScore: timeInCentiseconds)
+            }
+            // --- 调试代码结束 ---
+
             clearSavedGame()
         }
     }
@@ -485,6 +495,7 @@ class GameManager: ObservableObject {
         }
     }
 
+
     func submitScoreToLeaderboard(levelID: String, moves: Int, time: TimeInterval) {
         guard GKLocalPlayer.local.isAuthenticated else {
             debugLog("Game Center: Player not authenticated. Cannot submit score.")
@@ -513,6 +524,46 @@ class GameManager: ObservableObject {
             }
         }
     }
+
+    // --- 新增的调试函数 ---
+    @MainActor
+    func verifyScoreSubmission(leaderboardID: String,submittedScore: Int) async {
+        guard GKLocalPlayer.local.isAuthenticated else {
+            debugLog("Verify Score: Player not authenticated.")
+            return
+        }
+    
+        debugLog("Verify Score: Checking for score on leaderboard '\(leaderboardID)'...")
+        
+        do {
+            // 加载指定的排行榜
+            let leaderboards = try await GKLeaderboard.loadLeaderboards(IDs: [leaderboardID])
+            
+            guard let leaderboard = leaderboards.first else {
+                debugLog("⚠️ Verify Score FAILED: Leaderboard with ID '\(leaderboardID)' not found in App Store Connect.")
+                return
+            }
+    
+            // --- 增加日志输出 ---
+            let typeDescription = leaderboard.type == .classic ? "Classic" : "Recurring"
+            debugLog("   - Leaderboard '\(leaderboard.baseLeaderboardID)' loaded. Type: \(typeDescription).")
+    
+            let (localPlayerEntry, _) = try await leaderboard.loadEntries(for: [GKLocalPlayer.local], timeScope: .allTime)
+    
+            if let entry = localPlayerEntry {
+                debugLog("✅ Verify Score SUCCESS: Found score for player on '\(leaderboardID)'. Rank: \(entry.rank), Recorded Score: \(entry.score), Submitted Score: \(submittedScore).")
+                if entry.score != submittedScore {
+                     debugLog("   - NOTE: The recorded score (\(entry.score)) does not match the newly submitted score (\(submittedScore)). This is expected if the new score was not better than the old one. Please check the 'Sort Order' in App Store Connect. It should be 'Low to High' for moves and time.")
+                }
+            } else {
+                debugLog("⚠️ Verify Score FAILED: No score found for local player on '\(leaderboardID)'.")
+            }
+        } catch {
+            debugLog("❌ Verify Score ERROR: An error occurred while fetching score for '\(leaderboardID)': \(error.localizedDescription)")
+        }
+    }
+    // --- 调试函数结束 ---
+
 
     @MainActor
     func syncAllLocalBestScoresToGameCenter() async {
@@ -546,3 +597,4 @@ class GameManager: ObservableObject {
         }
     }
 }
+
